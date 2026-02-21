@@ -1,7 +1,7 @@
 {
- "uuid": "window-list@cinnamon.org",
- "name": "Window list",
- "description": "Main Cinnamon window list",
+ "uuid": "multirow-window-list@cinnamon",
+ "name": "Multi-Row Window List",
+ "description": "Window list applet that wraps buttons into multiple rows when the panel is tall enough",
  "icon": "cs-windows",
  "role": "windowattentionhandler",
  "max-instances": -1

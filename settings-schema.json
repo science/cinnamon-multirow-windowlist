@@ -90,5 +90,45 @@
   "last-window-order": {
       "type": "generic",
       "default": ""
+  },
+  "section-multirow": {
+    "type": "section",
+    "description": "Multi-Row"
+  },
+  "max-rows": {
+      "type": "spinbutton",
+      "default": 2,
+      "min": 1,
+      "max": 4,
+      "step": 1,
+      "units": "rows",
+      "description": "Maximum rows for window buttons (1 = never wrap)"
+  },
+  "section-button-appearance": {
+    "type": "section",
+    "description": "Button Appearance"
+  },
+  "icon-size-override": {
+      "type": "spinbutton",
+      "default": 0,
+      "min": 0,
+      "max": 64,
+      "step": 2,
+      "units": "pixels",
+      "description": "Icon size override (0 = auto-scale to row height)"
+  },
+  "label-font-size": {
+      "type": "spinbutton",
+      "default": 0,
+      "min": 0,
+      "max": 24,
+      "step": 1,
+      "units": "pt",
+      "description": "Label font size (0 = system default)"
+  },
+  "label-wrap": {
+      "type": "switch",
+      "default": true,
+      "description": "Allow title text to wrap within the button"
   }
 }

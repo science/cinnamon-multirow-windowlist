@@ -1,0 +1,15 @@
+{
+  "name": "cinnamon-multirow-windowlist",
+  "version": "1.0.0",
+  "description": "",
+  "main": "applet.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

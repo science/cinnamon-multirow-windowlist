@@ -53,6 +53,7 @@ const Gdk = imports.gi.Gdk;
 const Lang = imports.lang;
 const Mainloop = imports.mainloop;
 const Meta = imports.gi.Meta;
+const Pango = imports.gi.Pango;
 const St = imports.gi.St;
 
 const Applet = imports.ui.applet;
@@ -64,6 +65,8 @@ const Settings = imports.ui.settings;
 const SignalManager = imports.misc.signalManager;
 const Tooltips = imports.ui.tooltips;
 const WindowUtils = imports.misc.windowUtils;
+
+const { calcAdaptiveRowCount, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize } = require('./helpers');
 
 const MAX_TEXT_LENGTH = 1000;
 const FLASH_INTERVAL = 500;
@@ -310,6 +313,7 @@ class AppMenuButton {
         this.actor.add_actor(this._label);
 
         this.updateLabelVisible();
+        this._setupLabelWrapping();
 
         this._visible = true;
 
@@ -380,6 +384,7 @@ class AppMenuButton {
     onUnmanaged() {
         this.destroy();
         this._windows.splice(this._windows.indexOf(this), 1);
+        this._applet._recomputeAdaptiveRows();
     }
 
     onPreviewChanged() {
@@ -625,6 +630,7 @@ class AppMenuButton {
     updateIconGeometry() {
         if (this._updateIconGeometryTimeoutId > 0) {
             Mainloop.source_remove(this._updateIconGeometryTimeoutId);
+            this._updateIconGeometryTimeoutId = 0;
         }
 
         this._updateIconGeometryTimeoutId = Mainloop.timeout_add(50, Lang.bind(this, this._updateIconGeometryTimeout));
@@ -677,13 +683,8 @@ class AppMenuButton {
         }
 
         if (this._applet.orientation == St.Side.TOP || this._applet.orientation == St.Side.BOTTOM ) {
-            /* putting a container around the actor for layout management reasons affects the allocation,
-               causing the visible border to pull in close around the contents which is not the desired
-               (pre-existing) behaviour, so need to push the visible border back towards the panel edge.
-               Assigning the natural size to the full panel height used to cause recursion errors but seems fine now.
-               If this happens to avoid this you can subtract 1 or 2 pixels, but this will give an unreactive
-               strip at the edge of the screen */
-            alloc.natural_size = this._applet._panelHeight;
+            /* Scale button height to fit multiple rows within the panel */
+            alloc.natural_size = Math.floor(this._applet._panelHeight / this._applet._computedRows);
         } else {
             alloc.natural_size = naturalSize1;
         }
@@ -699,10 +700,7 @@ class AppMenuButton {
 
         let direction = this.actor.get_text_direction();
         let spacing = Math.floor(this.actor.get_theme_node().get_length('spacing'));
-        let yPadding = Math.floor(Math.max(0, allocHeight - naturalHeight) / 2);
-
-        childBox.y1 = box.y1 + yPadding;
-        childBox.y2 = childBox.y1 + Math.min(naturalHeight, allocHeight);
+        let mode = calcLayoutMode(this._applet._computedRows);
 
         if (allocWidth < naturalWidth) {
             this.labelVisible = false;
@@ -710,35 +708,51 @@ class AppMenuButton {
             this.labelVisible = this.labelVisiblePref;
         }
 
-        if (this.drawLabel) {
-            if (direction === Clutter.TextDirection.LTR) {
-                childBox.x1 = box.x1;
-            } else {
-                childBox.x1 = Math.max(box.x1, box.x2 - naturalWidth);
+        if (mode === 'compact') {
+            // Compact mode: icon top-left, label right of icon, single line
+            let iconPad = 2;
+            childBox.x1 = box.x1 + iconPad;
+            childBox.x2 = childBox.x1 + Math.min(naturalWidth, allocWidth - iconPad);
+            childBox.y1 = box.y1 + iconPad;
+            childBox.y2 = childBox.y1 + Math.min(naturalHeight, allocHeight - iconPad);
+            this._iconBox.allocate(childBox, flags);
+
+            if (this.drawLabel) {
+                [minWidth, minHeight, naturalWidth, naturalHeight] = this._label.get_preferred_size();
+                let labelX = childBox.x2 + spacing;
+                let yPadding = Math.floor(Math.max(0, allocHeight - naturalHeight) / 2);
+                if (direction === Clutter.TextDirection.LTR) {
+                    childBox.x1 = Math.min(labelX, box.x2);
+                    childBox.x2 = box.x2;
+                } else {
+                    childBox.x2 = Math.max(box.x1, box.x2 - labelX + box.x1);
+                    childBox.x1 = box.x1;
+                }
+                childBox.y1 = box.y1 + yPadding;
+                childBox.y2 = childBox.y1 + Math.min(naturalHeight, allocHeight);
+                this._label.allocate(childBox, flags);
             }
-            childBox.x2 = Math.min(childBox.x1 + naturalWidth, box.x2);
         } else {
-            childBox.x1 = box.x1 + Math.floor(Math.max(0, allocWidth - naturalWidth) / 2);
-            childBox.x2 = Math.min(childBox.x1 + naturalWidth, box.x2);
-        }
-        this._iconBox.allocate(childBox, flags);
+            // Spacious mode: small icon upper-left, label below spanning full width
+            let iconPad = 2;
 
-        if (this.drawLabel) {
-            [minWidth, minHeight, naturalWidth, naturalHeight] = this._label.get_preferred_size();
+            childBox.x1 = box.x1 + iconPad;
+            childBox.x2 = childBox.x1 + Math.min(naturalWidth, allocWidth - iconPad);
+            childBox.y1 = box.y1 + iconPad;
+            childBox.y2 = childBox.y1 + Math.min(naturalHeight, allocHeight - iconPad);
+            let iconBottom = childBox.y2;
+            this._iconBox.allocate(childBox, flags);
 
-            yPadding = Math.floor(Math.max(0, allocHeight - naturalHeight) / 2);
-            childBox.y1 = box.y1 + yPadding;
-            childBox.y2 = childBox.y1 + Math.min(naturalHeight, allocHeight);
-            if (direction === Clutter.TextDirection.LTR) {
-                // Reuse the values from the previous allocation
-                childBox.x1 = Math.min(childBox.x2 + spacing, box.x2);
+            if (this.drawLabel) {
+                [minWidth, minHeight, naturalWidth, naturalHeight] = this._label.get_preferred_size();
+
+                childBox.x1 = box.x1 + iconPad;
                 childBox.x2 = box.x2;
-            } else {
-                childBox.x2 = Math.max(childBox.x1 - spacing, box.x1);
-                childBox.x1 = box.x1;
-            }
+                childBox.y1 = iconBottom + 1;
+                childBox.y2 = box.y2;
 
-            this._label.allocate(childBox, flags);
+                this._label.allocate(childBox, flags);
+            }
         }
 
         if (!this.progressOverlay.visible) {
@@ -765,6 +779,46 @@ class AppMenuButton {
             this._label.hide();
             this.labelVisiblePref = false;
             this.drawLabel = false;
+        }
+    }
+
+    _setupLabelWrapping() {
+        let ct = this._label.get_clutter_text();
+        let mode = calcLayoutMode(this._applet._computedRows);
+        if (mode === 'compact') {
+            ct.set_line_wrap(false);
+            ct.set_ellipsize(Pango.EllipsizeMode.END);
+        } else {
+            ct.set_line_wrap(this._applet.labelWrap);
+            // Ellipsize must be NONE for ClutterText wrapping to work
+            ct.set_ellipsize(this._applet.labelWrap ? Pango.EllipsizeMode.NONE : Pango.EllipsizeMode.END);
+        }
+        ct.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR);
+        this.updateLabelStyle();
+    }
+
+    updateLabelStyle() {
+        let style = '';
+        let fontSize = this._applet.labelFontSize;
+        // Auto-calculate font size based on adaptive layout
+        if (fontSize === 0) {
+            let autoSize = calcAdaptiveFontSize(this._applet._panelHeight, this._applet._computedRows);
+            if (autoSize > 0) {
+                style += `font-size: ${autoSize}pt;`;
+            }
+        } else {
+            style += `font-size: ${fontSize}pt;`;
+        }
+        this._label.set_style(style);
+
+        let ct = this._label.get_clutter_text();
+        let mode = calcLayoutMode(this._applet._computedRows);
+        if (mode === 'compact') {
+            ct.set_line_wrap(false);
+            ct.set_ellipsize(Pango.EllipsizeMode.END);
+        } else {
+            ct.set_line_wrap(this._applet.labelWrap);
+            ct.set_ellipsize(this._applet.labelWrap ? Pango.EllipsizeMode.NONE : Pango.EllipsizeMode.END);
         }
     }
 
@@ -1013,11 +1067,18 @@ class CinnamonWindowListApplet extends Applet.Applet {
         this.icon_size = this.getPanelIconSize(St.IconType.FULLCOLOR);
         this.appletEnabled = false;
         //
-        // A layout manager is used to cater for vertical panels as well as horizontal
+        // A layout manager is used to cater for vertical panels as well as horizontal.
+        // For horizontal panels, FlowLayout wraps buttons into multiple rows.
+        // For vertical panels, BoxLayout is used (multi-row doesn't apply).
         //
         let manager;
         if (this.orientation == St.Side.TOP || this.orientation == St.Side.BOTTOM) {
-            manager = new Clutter.BoxLayout( { orientation: Clutter.Orientation.HORIZONTAL });
+            manager = new Clutter.FlowLayout({
+                orientation: Clutter.FlowOrientation.HORIZONTAL,
+                homogeneous: true,
+                column_spacing: 0,
+                row_spacing: 0
+            });
         } else {
             manager = new Clutter.BoxLayout( { orientation: Clutter.Orientation.VERTICAL });
             this.actor.add_style_class_name("vertical");
@@ -1027,6 +1088,12 @@ class CinnamonWindowListApplet extends Applet.Applet {
         this.manager_container = new Clutter.Actor( { layout_manager: manager } );
         this.actor.add_actor (this.manager_container);
 
+        // FlowLayout needs a width constraint to trigger wrapping.
+        // Use SignalManager so this gets cleaned up automatically on removal.
+        if (this.orientation == St.Side.TOP || this.orientation == St.Side.BOTTOM) {
+            this.signals.connect(this.actor, 'notify::allocation', this._onAllocationChanged, this);
+        }
+
         this.dragInProgress = false;
         this._tooltipShowing = false;
         this._tooltipErodeTimer = null;
@@ -1035,7 +1102,7 @@ class CinnamonWindowListApplet extends Applet.Applet {
         this._windows = [];
         this._monitorWatchList = [];
 
-        this.settings = new Settings.AppletSettings(this, "window-list@cinnamon.org", this.instance_id);
+        this.settings = new Settings.AppletSettings(this, "multirow-window-list@cinnamon", this.instance_id);
 
         this.settings.bind("show-all-workspaces", "showAllWorkspaces");
         this.settings.bind("enable-alerts", "enableAlerts", this._updateAttentionGrabber);
@@ -1051,6 +1118,16 @@ class CinnamonWindowListApplet extends Applet.Applet {
         this.settings.bind("window-preview-scale", "previewScale", this._onPreviewChanged);
         this.settings.bind("last-window-order", "lastWindowOrder", null);
 
+        // Multi-row settings
+        this.settings.bind("max-rows", "maxRows", this._onLayoutSettingsChanged);
+        this.settings.bind("icon-size-override", "iconSizeOverride", this._onAppearanceSettingsChanged);
+        this.settings.bind("label-font-size", "labelFontSize", this._onAppearanceSettingsChanged);
+        this.settings.bind("label-wrap", "labelWrap", this._onAppearanceSettingsChanged);
+
+        // Adaptive row state (derived, not a setting)
+        this._computedRows = 1;
+        this._inAllocationUpdate = false;
+
         this.signals.connect(global.display, 'window-created', this._onWindowAddedAsync, this);
         this.signals.connect(global.display, 'window-monitor-changed', this._onWindowMonitorChanged, this);
         this.signals.connect(global.display, 'window-workspace-changed', this._onWindowWorkspaceChanged, this);
@@ -1063,6 +1140,9 @@ class CinnamonWindowListApplet extends Applet.Applet {
 
         global.settings.bind("panel-edit-mode", this.actor, "reactive", Gio.SettingsBindFlags.DEFAULT);
 
+        // Recalculate icon size now that multi-row settings are bound
+        this._recalcIconSize();
+
         this.on_orientation_changed(orientation);
         this._updateAttentionGrabber();
     }
@@ -1073,6 +1153,13 @@ class CinnamonWindowListApplet extends Applet.Applet {
     }
 
     on_applet_removed_from_panel() {
+        // Destroy all window button actors and their signals/menus/tooltips
+        // to prevent GC sweep crashes on cinnamon --replace
+        for (let i = this._windows.length - 1; i >= 0; i--) {
+            this._windows[i].destroy();
+        }
+        this._windows = [];
+
         this.signals.disconnectAllSignals();
         this.settings.finalize();
     }
@@ -1082,30 +1169,55 @@ class CinnamonWindowListApplet extends Applet.Applet {
     }
 
     on_panel_height_changed() {
-        this.icon_size = this.getPanelIconSize(St.IconType.FULLCOLOR);
+        this._recomputeAdaptiveRows();
         this._refreshAllItems();
     }
 
     on_panel_icon_size_changed(size) {
-        this.icon_size = size;
+        this._recalcIconSize();
         this._refreshAllItems();
     }
 
     on_orientation_changed(orientation) {
         this.orientation = orientation;
 
-        for (let window of this._windows)
+        for (let window of this._windows) {
             window.updateLabelVisible();
+            window._setupLabelWrapping();
+        }
 
+        // Recreate the layout manager for the new orientation
         if (orientation == St.Side.TOP || orientation == St.Side.BOTTOM) {
-            this.manager.set_vertical(false);
+            let spacing = 0;
+            try {
+                let themeNode = this.actor.get_theme_node();
+                spacing = themeNode.get_length('spacing') * global.ui_scale;
+            } catch(e) {}
+            this.manager = new Clutter.FlowLayout({
+                orientation: Clutter.FlowOrientation.HORIZONTAL,
+                homogeneous: true,
+                column_spacing: spacing,
+                row_spacing: 0
+            });
+            this.manager_container.set_layout_manager(this.manager);
             this._reTitleItems();
             this.actor.remove_style_class_name("vertical");
+
+            // Re-add the allocation listener for width constraint (via SignalManager).
+            // Disconnect first to avoid duplicates from repeated orientation changes.
+            this.signals.disconnect('notify::allocation', this.actor);
+            this.signals.connect(this.actor, 'notify::allocation', this._onAllocationChanged, this);
         } else {
-            this.manager.set_vertical(true);
+            this.manager = new Clutter.BoxLayout({ orientation: Clutter.Orientation.VERTICAL });
+            this.manager_container.set_layout_manager(this.manager);
             this.actor.add_style_class_name("vertical");
             this.actor.set_x_align(Clutter.ActorAlign.CENTER);
             this.actor.set_important(true);
+
+            // Disconnect the allocation listener (not needed for vertical)
+            this.signals.disconnect('notify::allocation', this.actor);
+            // Remove width constraint
+            this.manager_container.set_width(-1);
         }
 
         // Any padding/margin is removed on one side so that the AppMenuButton
@@ -1146,10 +1258,70 @@ class CinnamonWindowListApplet extends Applet.Applet {
         this._updateAllIconGeometry()
     }
 
+    _onAllocationChanged() {
+        if (this._inAllocationUpdate) return;
+        this._inAllocationUpdate = true;
+        try {
+            let parent = this.actor.get_parent();
+            if (parent) {
+                let width = parent.get_width();
+                if (width > 0) {
+                    this.manager_container.set_width(width);
+                    this._recomputeAdaptiveRows();
+                }
+            }
+        } finally {
+            this._inAllocationUpdate = false;
+        }
+    }
+
+    _recomputeAdaptiveRows() {
+        if (this.orientation !== St.Side.TOP && this.orientation !== St.Side.BOTTOM) {
+            this._computedRows = 1;
+            return;
+        }
+        let parent = this.actor.get_parent();
+        let containerWidth = parent ? parent.get_width() : 0;
+        let visibleCount = this._windows.filter(w => w.actor.visible).length;
+        let newRows = calcAdaptiveRowCount(containerWidth, visibleCount, this.buttonWidth, this.maxRows);
+
+        if (newRows !== this._computedRows) {
+            this._computedRows = newRows;
+            this._recalcIconSize();
+            for (let window of this._windows) {
+                window.setIcon();
+                window._setupLabelWrapping();
+            }
+        }
+    }
+
+    _recalcIconSize() {
+        this.icon_size = calcAdaptiveIconSize(this._panelHeight, this._computedRows, this.iconSizeOverride);
+    }
+
+    _onLayoutSettingsChanged() {
+        this._recomputeAdaptiveRows();
+        this._refreshAllItems();
+        this._onAllocationChanged();
+    }
+
+    _onAppearanceSettingsChanged() {
+        this._recalcIconSize();
+        for (let window of this._windows) {
+            window.setIcon();
+            window.updateLabelStyle();
+        }
+    }
+
     _updateSpacing() {
         let themeNode = this.actor.get_theme_node();
-        let spacing = themeNode.get_length('spacing');
-        this.manager.set_spacing(spacing * global.ui_scale);
+        let spacing = themeNode.get_length('spacing') * global.ui_scale;
+
+        if (this.manager instanceof Clutter.FlowLayout) {
+            this.manager.set_column_spacing(spacing);
+        } else {
+            this.manager.set_spacing(spacing);
+        }
     }
 
     _onWindowAddedAsync(display, metaWindow, monitor) {
@@ -1252,6 +1424,7 @@ class CinnamonWindowListApplet extends Applet.Applet {
         for (let window of this._windows) {
             this._refreshItem(window);
         }
+        this._recomputeAdaptiveRows();
     }
 
     _reTitleItems() {
@@ -1354,6 +1527,7 @@ class CinnamonWindowListApplet extends Applet.Applet {
 
         this._saveOrder();
         this._updateAllIconGeometry();
+        this._recomputeAdaptiveRows();
     }
 
     _removeWindow(metaWindow) {
@@ -1368,6 +1542,7 @@ class CinnamonWindowListApplet extends Applet.Applet {
 
         this._saveOrder();
         this._updateAllIconGeometry();
+        this._recomputeAdaptiveRows();
     }
 
     _shouldAdd(metaWindow) {
