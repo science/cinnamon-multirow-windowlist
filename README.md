@@ -19,40 +19,22 @@ A Cinnamon desktop applet that wraps window buttons into multiple rows on tall p
 
 ## Install
 
-### Development (symlink)
-
 ```bash
-# Clone the repo
-git clone <repo-url> ~/dev/cinnamon-multirow-windowlist
-cd ~/dev/cinnamon-multirow-windowlist
-
-# Symlink into Cinnamon's applet directory
-ln -s "$(pwd)" ~/.local/share/cinnamon/applets/multirow-window-list@cinnamon
-
-# Restart Cinnamon (Alt+F2 → r → Enter, or:)
-cinnamon --replace &
+./install.sh
 ```
 
-### Manual install (copy)
+The install script:
+1. Checks Cinnamon is installed
+2. Validates all required files are present (`applet.js`, `helpers.js`, `metadata.json`, `settings-schema.json`)
+3. Verifies the UUID in `metadata.json` matches
+4. Creates a symlink from the repo into `~/.local/share/cinnamon/applets/`
+5. Warns if the stock `window-list@cinnamon.org` is still enabled (role conflict)
 
-```bash
-# Copy files to Cinnamon applet directory
-mkdir -p ~/.local/share/cinnamon/applets/multirow-window-list@cinnamon
-cp applet.js helpers.js metadata.json settings-schema.json \
-   ~/.local/share/cinnamon/applets/multirow-window-list@cinnamon/
-
-# Restart Cinnamon
-cinnamon --replace &
-```
-
-### Enable the applet
-
+After running, enable the applet:
 1. Right-click the panel → **Applets**
-2. Search for "Multi-Row Window List"
-3. Add it to your panel
-4. (Optional) Remove the stock "Window list" applet to avoid duplicates
-
-> **Note**: This applet has the `windowattentionhandler` role, same as the stock window list. Only one applet with this role should be active at a time.
+2. Search for "Multi-Row Window List" → add it
+3. Remove the stock "Window list" to avoid the `windowattentionhandler` role conflict
+4. Restart Cinnamon: `Alt+F2` → type `r` → Enter
 
 ## Configuration
 
@@ -67,22 +49,20 @@ Right-click the applet → **Configure**:
 
 ## Uninstall
 
-The included script removes the applet from dconf `enabled-applets` and deletes the symlink/directory. No GUI needed — safe to run from a TTY if Cinnamon has crashed.
-
 ```bash
 ./uninstall.sh
 ```
 
+No GUI needed — safe to run from a TTY if Cinnamon has crashed.
+
+The uninstall script:
+1. Removes `multirow-window-list@cinnamon` from dconf `enabled-applets`
+2. Deletes the symlink or directory at `~/.local/share/cinnamon/applets/multirow-window-list@cinnamon`
+3. Warns if no stock window-list is enabled (so you know to re-add one)
+
 Then restart Cinnamon:
 - **From desktop**: `Alt+F2` → type `r` → Enter
 - **From TTY** (if Cinnamon crashed): `DISPLAY=:0 cinnamon --replace &`
-
-### What `uninstall.sh` does
-
-1. Reads `/org/cinnamon/enabled-applets` from dconf
-2. Filters out any entry containing `multirow-window-list@cinnamon`
-3. Writes the updated list back to dconf
-4. Removes `~/.local/share/cinnamon/applets/multirow-window-list@cinnamon` (symlink or directory)
 
 ## Running Tests
 

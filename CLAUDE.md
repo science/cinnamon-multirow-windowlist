@@ -15,7 +15,8 @@ Cinnamon 6.0.4 desktop applet (forked from stock `window-list@cinnamon.org`) tha
 | `helpers.js` | Pure computation functions (no GJS deps, testable in Node) |
 | `metadata.json` | Applet UUID, name, role |
 | `settings-schema.json` | User-configurable settings (max-rows, icon-size, font, wrap) |
-| `uninstall.sh` | Safe removal — strips from dconf + deletes symlink. Works from TTY |
+| `install.sh` | Install with validation — checks files, Cinnamon version, creates symlink, warns about role conflicts |
+| `uninstall.sh` | Safe removal — strips from dconf + deletes symlink. Works from TTY if Cinnamon crashed |
 | `test/helpers.test.js` | Unit tests for helper functions |
 | `test/schema.test.js` | Settings schema validation tests |
 | `test/applet-lint.test.js` | Safety checks (cleanup, signals, timers) |
@@ -23,9 +24,12 @@ Cinnamon 6.0.4 desktop applet (forked from stock `window-list@cinnamon.org`) tha
 ## Commands
 
 - **Run tests**: `npm test` (52 tests, Node.js 18+)
-- **Install (dev symlink)**: `ln -s "$(pwd)" ~/.local/share/cinnamon/applets/multirow-window-list@cinnamon`
-- **Uninstall**: `./uninstall.sh` (safe from TTY if Cinnamon crashed, then `DISPLAY=:0 cinnamon --replace &`)
-- **Restart Cinnamon**: `Alt+F2 → r → Enter` or `DISPLAY=:0 cinnamon --replace &`
+- **Install**: `./install.sh` (validates files, creates symlink, warns about stock applet conflict)
+- **Uninstall**: `./uninstall.sh` (removes from dconf + deletes symlink; safe from TTY if Cinnamon crashed)
+- **Restart Cinnamon**: `Alt+F2 → r → Enter` or from TTY: `DISPLAY=:0 cinnamon --replace &`
+- **Applet dir**: `~/.local/share/cinnamon/applets/multirow-window-list@cinnamon`
+- **dconf key**: `/org/cinnamon/enabled-applets` (list of active applets)
+- **Stock applet UUID**: `window-list@cinnamon.org` (has same `windowattentionhandler` role — only one should be active)
 
 ## Architecture
 
