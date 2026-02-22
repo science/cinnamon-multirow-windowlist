@@ -67,16 +67,13 @@ Right-click the applet → **Configure**:
 
 ## Uninstall
 
+The included script removes the applet from dconf and deletes the symlink/directory. Safe to run from a TTY if Cinnamon has crashed:
+
 ```bash
-# If using symlink:
-rm ~/.local/share/cinnamon/applets/multirow-window-list@cinnamon
-
-# If using copy:
-rm -rf ~/.local/share/cinnamon/applets/multirow-window-list@cinnamon
-
-# Restart Cinnamon
-cinnamon --replace &
+./uninstall.sh
 ```
+
+Then restart Cinnamon (`Alt+F2 → r → Enter`, or from a TTY: `DISPLAY=:0 cinnamon --replace &`).
 
 ## Running Tests
 
