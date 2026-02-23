@@ -66,7 +66,7 @@ const SignalManager = imports.misc.signalManager;
 const Tooltips = imports.ui.tooltips;
 const WindowUtils = imports.misc.windowUtils;
 
-const { calcAdaptiveRowCount, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize } = require('./helpers');
+const { calcAdaptiveRowCount, calcButtonWidth, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize } = require('./helpers');
 
 const MAX_TEXT_LENGTH = 1000;
 const FLASH_INTERVAL = 500;
@@ -659,10 +659,10 @@ class AppMenuButton {
                 if (this._applet.buttonsUseEntireSpace) {
                     let [lminSize, lnaturalSize] = this._label.get_preferred_width(forHeight);
                     let spacing = this.actor.get_theme_node().get_length('spacing');
-                    alloc.natural_size = Math.max(this._applet.buttonWidth * global.ui_scale,
+                    alloc.natural_size = Math.max(this._applet._effectiveButtonWidth * global.ui_scale,
                             naturalSize + spacing + lnaturalSize);
                 } else {
-                    alloc.natural_size = this._applet.buttonWidth * global.ui_scale;
+                    alloc.natural_size = this._applet._effectiveButtonWidth * global.ui_scale;
                 }
             } else {
                 alloc.natural_size = naturalSize
@@ -771,7 +771,7 @@ class AppMenuButton {
     }
 
     updateLabelVisible() {
-        if (this._applet.showLabelPanel) {
+        if (this._applet.showLabelPanel && !this._applet._iconOnlyMode) {
             this._label.show();
             this.labelVisiblePref = true;
             this.drawLabel = true;
@@ -1088,6 +1088,13 @@ class CinnamonWindowListApplet extends Applet.Applet {
         this.manager_container = new Clutter.Actor( { layout_manager: manager } );
         this.actor.add_actor (this.manager_container);
 
+        // Override FlowLayout's inflated min_width so the panel's _calcBoxSizes()
+        // enters the proportional-sharing branch (like stock BoxLayout) instead of
+        // the scale-everything-down branch that squeezes left/right zones off-screen.
+        if (this.orientation == St.Side.TOP || this.orientation == St.Side.BOTTOM) {
+            this.manager_container.min_width = 0;
+        }
+
         // FlowLayout needs a width constraint to trigger wrapping.
         // Use SignalManager so this gets cleaned up automatically on removal.
         if (this.orientation == St.Side.TOP || this.orientation == St.Side.BOTTOM) {
@@ -1126,7 +1133,10 @@ class CinnamonWindowListApplet extends Applet.Applet {
 
         // Adaptive row state (derived, not a setting)
         this._computedRows = 1;
+        this._effectiveButtonWidth = this.buttonWidth;
+        this._iconOnlyMode = false;
         this._inAllocationUpdate = false;
+        this._lastStableContainerWidth = 0;
 
         this.signals.connect(global.display, 'window-created', this._onWindowAddedAsync, this);
         this.signals.connect(global.display, 'window-monitor-changed', this._onWindowMonitorChanged, this);
@@ -1200,6 +1210,7 @@ class CinnamonWindowListApplet extends Applet.Applet {
                 row_spacing: 0
             });
             this.manager_container.set_layout_manager(this.manager);
+            this.manager_container.min_width = 0;
             this._reTitleItems();
             this.actor.remove_style_class_name("vertical");
 
@@ -1218,6 +1229,7 @@ class CinnamonWindowListApplet extends Applet.Applet {
             this.signals.disconnect('notify::allocation', this.actor);
             // Remove width constraint
             this.manager_container.set_width(-1);
+            this.manager_container.min_width = -1;
         }
 
         // Any padding/margin is removed on one side so that the AppMenuButton
@@ -1267,6 +1279,12 @@ class CinnamonWindowListApplet extends Applet.Applet {
                 let width = parent.get_width();
                 if (width > 0) {
                     this.manager_container.set_width(width);
+                    this.manager_container.min_width = 0;
+                    // Cache the stable container width for use by _recomputeAdaptiveRows.
+                    // parent.get_width() returns the correct zone width here because
+                    // notify::allocation fires AFTER the panel allocates this actor.
+                    let actorHPad = this.actor.get_theme_node().get_horizontal_padding();
+                    this._lastStableContainerWidth = width - actorHPad;
                     this._recomputeAdaptiveRows();
                 }
             }
@@ -1280,18 +1298,74 @@ class CinnamonWindowListApplet extends Applet.Applet {
             this._computedRows = 1;
             return;
         }
-        let parent = this.actor.get_parent();
-        let containerWidth = parent ? parent.get_width() : 0;
+        // Use the stable container width cached by _onAllocationChanged.
+        // parent.get_width() can return transitional values when called from _addWindow
+        // (e.g., 948 instead of stable 938) because the panel hasn't re-laid-out yet.
+        let containerWidth = this._lastStableContainerWidth;
+        if (containerWidth <= 0) {
+            // Fallback during initial setup before first allocation
+            let parent = this.actor.get_parent();
+            let rawWidth = parent ? parent.get_width() : 0;
+            let actorHPad = this.actor.get_theme_node().get_horizontal_padding();
+            containerWidth = rawWidth - actorHPad;
+        }
         let visibleCount = this._windows.filter(w => w.actor.visible).length;
-        let newRows = calcAdaptiveRowCount(containerWidth, visibleCount, this.buttonWidth, this.maxRows);
 
-        if (newRows !== this._computedRows) {
-            this._computedRows = newRows;
+        // St adds CSS padding on top of what _getPreferredWidth's alloc.natural_size reports.
+        // FlowLayout sees the total width (content + padding), so calculations must use
+        // total widths. ceil() accounts for sub-pixel rounding in St's padding math.
+        let hPad = 0;
+        if (this._windows.length > 0) {
+            hPad = Math.ceil(this._windows[0].actor.get_theme_node().get_horizontal_padding());
+        }
+        let totalButtonWidth = this.buttonWidth + hPad;
+
+        let newRows = calcAdaptiveRowCount(containerWidth, visibleCount, totalButtonWidth, this.maxRows);
+
+        // Tier 1: Shrink buttons to fit all windows in maxRows
+        const ICON_ONLY_THRESHOLD = 50;
+        let totalMinWidth = ICON_ONLY_THRESHOLD + hPad;
+        let totalEffective = calcButtonWidth(containerWidth, visibleCount, totalButtonWidth, this.maxRows, totalMinWidth);
+        let newEffectiveWidth = totalEffective - hPad;
+
+        // Tier 2: Icon-only when buttons too narrow for useful labels
+        let newIconOnly = newEffectiveWidth <= ICON_ONLY_THRESHOLD && visibleCount > 0
+            && newEffectiveWidth < this.buttonWidth;
+
+        let rowsChanged = newRows !== this._computedRows;
+        let widthChanged = newEffectiveWidth !== this._effectiveButtonWidth;
+        let iconOnlyChanged = newIconOnly !== this._iconOnlyMode;
+
+        this._computedRows = newRows;
+        this._effectiveButtonWidth = newEffectiveWidth;
+        this._iconOnlyMode = newIconOnly;
+
+        if (rowsChanged || iconOnlyChanged) {
             this._recalcIconSize();
             for (let window of this._windows) {
                 window.setIcon();
+                window.updateLabelVisible();
                 window._setupLabelWrapping();
             }
+        }
+
+        if (widthChanged) {
+            // Invalidate each button's cached preferred size so they
+            // report the new _effectiveButtonWidth on next query.
+            for (let window of this._windows) {
+                window.actor.queue_relayout();
+            }
+            // Clutter.FlowLayout also caches children's preferred sizes internally.
+            // Replacing the layout manager forces a complete re-query.
+            let newManager = new Clutter.FlowLayout({
+                orientation: Clutter.FlowOrientation.HORIZONTAL,
+                homogeneous: true,
+                column_spacing: 0,
+                row_spacing: 0
+            });
+            this.manager = newManager;
+            this.manager_container.set_layout_manager(newManager);
+            this.manager_container.min_width = 0;
         }
     }
 

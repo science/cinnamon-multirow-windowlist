@@ -2,7 +2,8 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const {
     calcRowHeight, calcIconSize, calcButtonHeight,
-    calcAdaptiveRowCount, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize
+    calcAdaptiveRowCount, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize,
+    calcButtonWidth
 } = require('../helpers');
 
 describe('calcRowHeight', () => {
@@ -166,5 +167,49 @@ describe('calcAdaptiveIconSize', () => {
     it('enforces 12px floor for very small rows', () => {
         // floor(36/2)-8 = 18-8 = 10 → clamped to 12
         assert.equal(calcAdaptiveIconSize(36, 2, 0), 12);
+    });
+});
+
+describe('calcButtonWidth', () => {
+    // 938px zone, 150px buttons, 2 maxRows → 6 per row × 2 = 12 fit
+    it('returns configured width when all buttons fit', () => {
+        // 938/150 = 6.25 → 6 per row × 2 rows = 12 slots; 10 buttons fit
+        assert.equal(calcButtonWidth(938, 10, 150, 2, 50), 150);
+    });
+
+    it('shrinks when buttons overflow maxRows', () => {
+        // 20 buttons, 2 rows → 10 per row needed → floor(938/10) = 93
+        assert.equal(calcButtonWidth(938, 20, 150, 2, 50), 93);
+    });
+
+    it('respects minimum width floor', () => {
+        // 50 buttons, 2 rows → 25 per row → floor(938/25) = 37 → clamped to 50
+        assert.equal(calcButtonWidth(938, 50, 150, 2, 50), 50);
+    });
+
+    it('returns configured width for 0 visibleCount', () => {
+        assert.equal(calcButtonWidth(938, 0, 150, 2, 50), 150);
+    });
+
+    it('returns configured width for negative visibleCount', () => {
+        assert.equal(calcButtonWidth(938, -1, 150, 2, 50), 150);
+    });
+
+    it('returns configured width for 0 containerWidth', () => {
+        assert.equal(calcButtonWidth(0, 10, 150, 2, 50), 150);
+    });
+
+    it('handles 1 window 1 row (no shrink needed)', () => {
+        assert.equal(calcButtonWidth(938, 1, 150, 1, 50), 150);
+    });
+
+    it('exact boundary: buttons exactly fill maxRows (no shrink)', () => {
+        // 6 per row × 2 rows = 12; 12 buttons → fits exactly
+        assert.equal(calcButtonWidth(938, 12, 150, 2, 50), 150);
+    });
+
+    it('one over boundary triggers shrink', () => {
+        // 13 buttons, 2 rows → 7 per row → floor(938/7) = 134
+        assert.equal(calcButtonWidth(938, 13, 150, 2, 50), 134);
     });
 });

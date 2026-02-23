@@ -56,6 +56,25 @@ function calcAdaptiveRowCount(containerWidth, buttonCount, buttonWidth, maxRows)
 }
 
 /**
+ * Calculate effective button width to fit all windows within maxRows.
+ * Shrinks below configured buttonWidth when needed; never below minWidth.
+ * @param {number} containerWidth - Available width in pixels
+ * @param {number} visibleCount - Number of visible window buttons
+ * @param {number} buttonWidth - Configured button width in pixels
+ * @param {number} maxRows - Maximum allowed rows
+ * @param {number} minWidth - Minimum button width before icon-only mode
+ * @returns {number} Effective button width in pixels
+ */
+function calcButtonWidth(containerWidth, visibleCount, buttonWidth, maxRows, minWidth) {
+    if (visibleCount <= 0 || containerWidth <= 0 || maxRows <= 0) return buttonWidth;
+    let buttonsPerRow = Math.max(1, Math.floor(containerWidth / buttonWidth));
+    let maxVisible = buttonsPerRow * maxRows;
+    if (visibleCount <= maxVisible) return buttonWidth;
+    let neededPerRow = Math.ceil(visibleCount / maxRows);
+    return Math.max(minWidth, Math.floor(containerWidth / neededPerRow));
+}
+
+/**
  * Return layout mode based on computed row count.
  * @param {number} computedRows - Number of rows from calcAdaptiveRowCount
  * @returns {'spacious'|'compact'}
@@ -93,6 +112,6 @@ function calcAdaptiveIconSize(panelHeight, computedRows, overrideSize) {
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         calcRowHeight, calcIconSize, calcButtonHeight,
-        calcAdaptiveRowCount, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize
+        calcAdaptiveRowCount, calcButtonWidth, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize
     };
 }
