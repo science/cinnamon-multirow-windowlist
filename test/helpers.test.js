@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const {
     calcRowHeight, calcButtonHeight,
     calcAdaptiveRowCount, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize,
-    calcButtonWidth, calcGroupedInsertionIndex
+    calcButtonWidth, calcGroupedInsertionIndex, calcDragInsertionIndex
 } = require('../helpers');
 
 describe('calcRowHeight', () => {
@@ -233,6 +233,170 @@ describe('calcGroupedInsertionIndex', () => {
 
     it('handles null entries in existing list', () => {
         assert.equal(calcGroupedInsertionIndex(['firefox', null, 'firefox'], 'firefox'), 3);
+    });
+});
+
+describe('calcDragInsertionIndex', () => {
+    // Layout for multi-row tests:
+    //   Container: 300px wide, buttons 150px wide × 30px tall
+    //   Row 1: [B0: 0,0]   [B1: 150,0]
+    //   Row 2: [B2: 0,30]  [B3: 150,30]
+    const twoRowButtons = [
+        { x: 0,   y: 0,  width: 150, height: 30 },  // B0 center: (75, 15)
+        { x: 150, y: 0,  width: 150, height: 30 },  // B1 center: (225, 15)
+        { x: 0,   y: 30, width: 150, height: 30 },  // B2 center: (75, 45)
+        { x: 150, y: 30, width: 150, height: 30 },  // B3 center: (225, 45)
+    ];
+
+    // Single-row layout (3 buttons, 100px wide × 30px tall)
+    //   [B0: 0,0] [B1: 100,0] [B2: 200,0]
+    const singleRowButtons = [
+        { x: 0,   y: 0, width: 100, height: 30 },  // center: (50, 15)
+        { x: 100, y: 0, width: 100, height: 30 },  // center: (150, 15)
+        { x: 200, y: 0, width: 100, height: 30 },  // center: (250, 15)
+    ];
+
+    // --- Edge cases ---
+
+    it('returns -1 for empty child list', () => {
+        assert.equal(calcDragInsertionIndex([], 100, 15, false), -1);
+    });
+
+    it('returns 0 for single child', () => {
+        const single = [{ x: 0, y: 0, width: 100, height: 30 }];
+        assert.equal(calcDragInsertionIndex(single, 200, 15, false), 0);
+    });
+
+    // --- Single-row (baseline — should pass with any algorithm) ---
+
+    it('single row: cursor near B0 center finds B0', () => {
+        assert.equal(calcDragInsertionIndex(singleRowButtons, 40, 15, false), 0);
+    });
+
+    it('single row: cursor near B1 center finds B1', () => {
+        assert.equal(calcDragInsertionIndex(singleRowButtons, 160, 15, false), 1);
+    });
+
+    it('single row: cursor near B2 center finds B2', () => {
+        assert.equal(calcDragInsertionIndex(singleRowButtons, 260, 15, false), 2);
+    });
+
+    it('single row: cursor between B0 and B1 finds closer one', () => {
+        // x=90 is closer to B0 center (50) than B1 center (150)
+        assert.equal(calcDragInsertionIndex(singleRowButtons, 90, 15, false), 0);
+    });
+
+    it('single row: cursor at midpoint between B0 and B1', () => {
+        // x=100 is equidistant; either 0 or 1 is acceptable
+        let result = calcDragInsertionIndex(singleRowButtons, 100, 15, false);
+        assert.ok(result === 0 || result === 1, `expected 0 or 1, got ${result}`);
+    });
+
+    // --- Multi-row: cursor in row 2 (BUG: these should find row 2 buttons) ---
+
+    it('two rows: cursor in row 2 left finds B2, not B0', () => {
+        // Cursor at (75, 40) — directly above B2 center (75, 45)
+        // B0 center is (75, 15) — same X but different row
+        // Should find B2 (index 2) because cursor is in row 2
+        assert.equal(calcDragInsertionIndex(twoRowButtons, 75, 40, false), 2);
+    });
+
+    it('two rows: cursor in row 2 right finds B3, not B1', () => {
+        // Cursor at (225, 40) — near B3 center (225, 45)
+        // B1 center is (225, 15) — same X but row 1
+        // Should find B3 (index 3)
+        assert.equal(calcDragInsertionIndex(twoRowButtons, 225, 40, false), 3);
+    });
+
+    it('two rows: cursor at row 2 left edge finds B2', () => {
+        // Cursor at (10, 35) — in row 2 area, near left side
+        // Closest by 2D distance: B2 at (75, 45) — dist ≈ 66
+        // B0 at (75, 15) — dist ≈ 68 — further because Y distance is larger
+        assert.equal(calcDragInsertionIndex(twoRowButtons, 10, 35, false), 2);
+    });
+
+    it('two rows: cursor at B2 exact center finds B2', () => {
+        assert.equal(calcDragInsertionIndex(twoRowButtons, 75, 45, false), 2);
+    });
+
+    it('two rows: cursor at B3 exact center finds B3', () => {
+        assert.equal(calcDragInsertionIndex(twoRowButtons, 225, 45, false), 3);
+    });
+
+    // --- Multi-row: cursor in row 1 should still find row 1 buttons ---
+
+    it('two rows: cursor in row 1 left finds B0', () => {
+        assert.equal(calcDragInsertionIndex(twoRowButtons, 75, 10, false), 0);
+    });
+
+    it('two rows: cursor in row 1 right finds B1', () => {
+        assert.equal(calcDragInsertionIndex(twoRowButtons, 225, 10, false), 1);
+    });
+
+    // --- Multi-row: cursor between rows should pick closer row ---
+
+    it('two rows: cursor between rows closer to row 1 finds row 1 button', () => {
+        // Cursor at (75, 20) — closer to row 1 center y=15 than row 2 center y=45
+        assert.equal(calcDragInsertionIndex(twoRowButtons, 75, 20, false), 0);
+    });
+
+    it('two rows: cursor between rows closer to row 2 finds row 2 button', () => {
+        // Cursor at (75, 35) — closer to row 2 center y=45 than row 1 center y=15
+        assert.equal(calcDragInsertionIndex(twoRowButtons, 75, 35, false), 2);
+    });
+
+    // --- 3-row layout ---
+
+    it('three rows: cursor in row 3 finds row 3 button', () => {
+        // 6 buttons in 3 rows of 2
+        const threeRowButtons = [
+            { x: 0,   y: 0,  width: 150, height: 20 },  // B0 center: (75, 10)
+            { x: 150, y: 0,  width: 150, height: 20 },  // B1 center: (225, 10)
+            { x: 0,   y: 20, width: 150, height: 20 },  // B2 center: (75, 30)
+            { x: 150, y: 20, width: 150, height: 20 },  // B3 center: (225, 30)
+            { x: 0,   y: 40, width: 150, height: 20 },  // B4 center: (75, 50)
+            { x: 150, y: 40, width: 150, height: 20 },  // B5 center: (225, 50)
+        ];
+        // Cursor at (75, 48) — in row 3, should find B4
+        assert.equal(calcDragInsertionIndex(threeRowButtons, 75, 48, false), 4);
+    });
+
+    // --- Vertical panel (isVertical = true, uses Y axis primarily) ---
+
+    it('vertical panel single column: finds closest by Y', () => {
+        const verticalButtons = [
+            { x: 0, y: 0,   width: 60, height: 30 },  // center: (30, 15)
+            { x: 0, y: 30,  width: 60, height: 30 },  // center: (30, 45)
+            { x: 0, y: 60,  width: 60, height: 30 },  // center: (30, 75)
+        ];
+        assert.equal(calcDragInsertionIndex(verticalButtons, 30, 50, true), 1);
+    });
+
+    // --- Uneven row (last row partially filled) ---
+
+    it('two rows with partial second row: cursor in row 2 finds B2', () => {
+        // 3 buttons: 2 in row 1, 1 in row 2
+        const unevenButtons = [
+            { x: 0,   y: 0,  width: 150, height: 30 },  // B0 center: (75, 15)
+            { x: 150, y: 0,  width: 150, height: 30 },  // B1 center: (225, 15)
+            { x: 0,   y: 30, width: 150, height: 30 },  // B2 center: (75, 45)
+        ];
+        // Cursor at (75, 40) — in row 2, should find B2 not B0
+        assert.equal(calcDragInsertionIndex(unevenButtons, 75, 40, false), 2);
+    });
+
+    it('two rows with partial second row: cursor in empty row 2 right finds B2 (only row 2 button)', () => {
+        // 3 buttons: 2 in row 1, 1 in row 2 (right side of row 2 is empty)
+        const unevenButtons = [
+            { x: 0,   y: 0,  width: 150, height: 30 },  // B0 center: (75, 15)
+            { x: 150, y: 0,  width: 150, height: 30 },  // B1 center: (225, 15)
+            { x: 0,   y: 30, width: 150, height: 30 },  // B2 center: (75, 45)
+        ];
+        // Cursor at (225, 40) — row 2 right side (empty), but closer to B2 than B1 by Y
+        // B1 center: (225, 15), dist = sqrt(0 + 625) = 25
+        // B2 center: (75, 45), dist = sqrt(22500 + 25) ≈ 150
+        // B1 is actually closer here — that's correct behavior (nearest button wins)
+        assert.equal(calcDragInsertionIndex(unevenButtons, 225, 40, false), 1);
     });
 });
 

@@ -110,11 +110,40 @@ function calcGroupedInsertionIndex(existingAppIds, newAppId) {
     return existingAppIds.length;
 }
 
+/**
+ * Calculate the insertion index during drag-and-drop reordering.
+ * Finds the child whose center is closest to the cursor position.
+ *
+ * @param {Array<{x: number, y: number, width: number, height: number}>} childRects
+ *   Bounding rectangles of each child in container-local coordinates
+ * @param {number} cursorX - Cursor X in container-local coordinates
+ * @param {number} cursorY - Cursor Y in container-local coordinates
+ * @param {boolean} isVertical - Whether panel is vertical (LEFT/RIGHT)
+ * @returns {number} Index of closest child, or -1 if no visible children
+ */
+function calcDragInsertionIndex(childRects, cursorX, cursorY, isVertical) {
+    let insertPos = -1;
+    let minDist = -1;
+    for (let i = 0; i < childRects.length; i++) {
+        let rect = childRects[i];
+        let cx = rect.x + rect.width / 2;
+        let cy = rect.y + rect.height / 2;
+        let dx = cursorX - cx;
+        let dy = cursorY - cy;
+        let dist = dx * dx + dy * dy;
+        if (dist < minDist || minDist == -1) {
+            minDist = dist;
+            insertPos = i;
+        }
+    }
+    return insertPos;
+}
+
 // Export for Node.js testing; ignored in GJS runtime
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         calcRowHeight, calcButtonHeight,
         calcAdaptiveRowCount, calcButtonWidth, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize,
-        calcGroupedInsertionIndex
+        calcGroupedInsertionIndex, calcDragInsertionIndex
     };
 }

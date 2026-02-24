@@ -12,7 +12,7 @@ Forked from the stock `window-list@cinnamon.org`.
 - **Adaptive layout**: one row uses a spacious layout (icon top-left, wrapped title text); two or more rows switch to a compact layout (icon left, single-line ellipsized title)
 - **Adaptive button sizing**: when too many windows for the configured rows, buttons shrink to fit; beyond a threshold they drop labels and go icon-only
 - **App grouping**: new windows from the same app are inserted next to existing windows of that app, keeping related windows together
-- **Drag reorder**: you can still drag buttons to rearrange; the order is saved and restored across restarts
+- **Drag reorder**: drag buttons to rearrange, including across rows; the order is saved and restored across restarts
 - All the standard window-list features: thumbnails on hover, middle-click close, left-click minimize, workspace filtering, attention alerts
 
 ## Requirements
@@ -75,7 +75,7 @@ Then restart Cinnamon:
 ## Tests
 
 ```bash
-npm test    # 105 unit tests
+npm test    # 128 unit tests
 ```
 
 Tests cover helper calculations, settings schema validation, and applet safety checks (signal cleanup, timer safety, layout correctness).

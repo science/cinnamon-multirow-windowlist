@@ -66,7 +66,7 @@ const SignalManager = imports.misc.signalManager;
 const Tooltips = imports.ui.tooltips;
 const WindowUtils = imports.misc.windowUtils;
 
-const { calcAdaptiveRowCount, calcButtonWidth, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize, calcGroupedInsertionIndex } = require('./helpers');
+const { calcAdaptiveRowCount, calcButtonWidth, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize, calcGroupedInsertionIndex, calcDragInsertionIndex } = require('./helpers');
 
 const MAX_TEXT_LENGTH = 1000;
 const FLASH_INTERVAL = 500;
@@ -471,8 +471,13 @@ class AppMenuButton {
 
     _onDragBegin() {
         if (this._applet.orientation == St.Side.TOP || this._applet.orientation == St.Side.BOTTOM) {
-            this._draggable._overrideY = this.actor.get_transformed_position()[1];
             this._draggable._overrideX = null;
+            if (this._applet._computedRows > 1) {
+                // Multi-row: allow vertical movement so cursor Y reaches all rows
+                this._draggable._overrideY = null;
+            } else {
+                this._draggable._overrideY = this.actor.get_transformed_position()[1];
+            }
         } else {
             this._draggable._overrideX = this.actor.get_transformed_position()[0];
             this._draggable._overrideY = null;
@@ -1733,21 +1738,19 @@ class CinnamonWindowListApplet extends Applet.Applet {
             return DND.DragMotionResult.NO_DROP;
 
         let children = this.manager_container.get_children();
-        let isVertical = (this.orientation == St.Side.LEFT || this.orientation == St.Side.RIGHT);
-        let axis = isVertical ? [y, 'y1'] : [x, 'x1'];
-
-        this._dragPlaceholderPos = -1;
-        let minDist = -1;
-        for(let i = 0; i < children.length; i++) {
-            if (!children[i].visible)
+        let childRects = [];
+        for (let i = 0; i < children.length; i++) {
+            if (!children[i].visible) {
+                childRects.push({ x: 0, y: 0, width: 0, height: 0 });
                 continue;
-            let dim = isVertical ? children[i].height : children[i].width;
-            let dist = Math.abs(axis[0] - (children[i].get_allocation_box()[axis[1]] + dim / 2));
-            if(dist < minDist || minDist == -1) {
-                minDist = dist;
-                this._dragPlaceholderPos = i;
             }
+            let box = children[i].get_allocation_box();
+            childRects.push({
+                x: box.x1, y: box.y1,
+                width: box.x2 - box.x1, height: box.y2 - box.y1
+            });
         }
+        this._dragPlaceholderPos = calcDragInsertionIndex(childRects, x, y, false);
 
         source.actor.hide();
         if (this._dragPlaceholder == undefined) {

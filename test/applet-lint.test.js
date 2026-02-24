@@ -210,6 +210,49 @@ describe('applet.js safety checks', () => {
         });
     });
 
+    describe('multi-row drag-and-drop', () => {
+        it('imports calcDragInsertionIndex from helpers', () => {
+            assert.ok(
+                appletSource.includes('calcDragInsertionIndex'),
+                'applet.js must import calcDragInsertionIndex from helpers'
+            );
+        });
+
+        it('applet-level handleDragOver calls calcDragInsertionIndex', () => {
+            // There are two handleDragOver methods — one on AppMenuButton (returns
+            // CONTINUE/NO_DROP for drag-to-window-open) and one on MyApplet (handles
+            // reordering). We need the one that references _dragPlaceholder.
+            const matches = appletSource.matchAll(
+                /^\s{4}handleDragOver\s*\([\s\S]*?\)\s*\{([\s\S]*?)^\s{4}\}/gm
+            );
+            let appletBody = null;
+            for (const m of matches) {
+                if (m[1].includes('_dragPlaceholder')) {
+                    appletBody = m[1];
+                    break;
+                }
+            }
+            assert.ok(appletBody, 'could not find applet-level handleDragOver (with _dragPlaceholder)');
+            assert.ok(
+                appletBody.includes('calcDragInsertionIndex'),
+                'applet handleDragOver must use calcDragInsertionIndex for 2D-aware positioning'
+            );
+        });
+
+        it('_onDragBegin conditionalizes _overrideY on row count', () => {
+            const methodMatch = appletSource.match(
+                /_onDragBegin\s*\(\)\s*\{([\s\S]*?)^\s{4}\}/m
+            );
+            assert.ok(methodMatch, 'could not find _onDragBegin body');
+            const body = methodMatch[1];
+            // Multi-row drag needs Y freedom — _onDragBegin must check _computedRows
+            assert.ok(
+                body.includes('_computedRows'),
+                '_onDragBegin must check _computedRows to conditionalize _overrideY for multi-row'
+            );
+        });
+    });
+
     describe('spacious float-left layout', () => {
         // Extract _allocate method body for all tests in this block
         const allocateMatch = appletSource.match(
