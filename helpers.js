@@ -14,21 +14,6 @@ function calcRowHeight(panelHeight, numberOfRows) {
 }
 
 /**
- * Calculate icon size for a given configuration.
- * @param {number} panelHeight - Total panel height in pixels
- * @param {number} numberOfRows - Number of rows (1-4)
- * @param {number} overrideSize - User override (0 = auto-scale)
- * @returns {number} Icon size in pixels
- */
-function calcIconSize(panelHeight, numberOfRows, overrideSize) {
-    if (overrideSize > 0) {
-        return overrideSize;
-    }
-    let rowHeight = calcRowHeight(panelHeight, numberOfRows);
-    return Math.max(16, rowHeight - 8);
-}
-
-/**
  * Calculate per-button height (buttons fill their row).
  * @param {number} panelHeight - Total panel height in pixels
  * @param {number} numberOfRows - Number of rows (1-4)
@@ -105,13 +90,31 @@ function calcAdaptiveFontSize(panelHeight, computedRows) {
 function calcAdaptiveIconSize(panelHeight, computedRows, overrideSize) {
     if (overrideSize > 0) return overrideSize;
     let rowHeight = Math.floor(panelHeight / computedRows);
-    return Math.max(12, Math.floor(rowHeight * 0.4));
+    let ratio = computedRows <= 1 ? 0.25 : 0.4;
+    return Math.max(12, Math.floor(rowHeight * ratio));
+}
+
+/**
+ * Calculate where to insert a new window button to group it with same-app siblings.
+ * Returns the index after the last existing window of the same app.
+ * If no sibling exists, returns the end of the list (append).
+ * @param {Array<string|null>} existingAppIds - App IDs of current buttons in order
+ * @param {string|null} newAppId - App ID of the new window
+ * @returns {number} Insertion index
+ */
+function calcGroupedInsertionIndex(existingAppIds, newAppId) {
+    if (!newAppId) return existingAppIds.length;
+    for (let i = existingAppIds.length - 1; i >= 0; i--) {
+        if (existingAppIds[i] === newAppId) return i + 1;
+    }
+    return existingAppIds.length;
 }
 
 // Export for Node.js testing; ignored in GJS runtime
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
-        calcRowHeight, calcIconSize, calcButtonHeight,
-        calcAdaptiveRowCount, calcButtonWidth, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize
+        calcRowHeight, calcButtonHeight,
+        calcAdaptiveRowCount, calcButtonWidth, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize,
+        calcGroupedInsertionIndex
     };
 }

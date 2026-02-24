@@ -1,51 +1,64 @@
 # Multi-Row Window List
 
-A Cinnamon desktop applet that wraps window buttons into multiple rows on tall panels. Forked from the stock `window-list@cinnamon.org`.
+A Cinnamon desktop applet that wraps window buttons into multiple rows on tall panels. If you use a bottom panel taller than the default, this applet fills the space with stacked rows of window buttons instead of one wide row with wasted vertical space.
 
-**Status: Alpha** -- functional but lightly tested. Use at your own risk.
+Forked from the stock `window-list@cinnamon.org`.
 
-## Features
+**Status: Alpha** — tested in a VM matching the target environment. Not yet tested on a daily-driver desktop.
 
-- **Adaptive layout**: automatically switches between spacious (1 row) and compact (2+ rows) based on window count
-- **Spacious mode**: small icon upper-left, title text wraps to 2 lines below
-- **Compact mode**: small icon left, single-line ellipsized title right
-- **Configurable**: max rows (1-4), icon size override, font size, text wrapping toggle
-- Uses `Clutter.FlowLayout` for native row wrapping
+## What It Does
+
+- **Multi-row wrapping**: window buttons flow into 2, 3, or 4 rows as windows pile up, using `Clutter.FlowLayout`
+- **Adaptive layout**: one row uses a spacious layout (icon top-left, wrapped title text); two or more rows switch to a compact layout (icon left, single-line ellipsized title)
+- **Adaptive button sizing**: when too many windows for the configured rows, buttons shrink to fit; beyond a threshold they drop labels and go icon-only
+- **App grouping**: new windows from the same app are inserted next to existing windows of that app, keeping related windows together
+- **Drag reorder**: you can still drag buttons to rearrange; the order is saved and restored across restarts
+- All the standard window-list features: thumbnails on hover, middle-click close, left-click minimize, workspace filtering, attention alerts
 
 ## Requirements
 
 - Cinnamon 6.0+ (tested on 6.0.4, Ubuntu 24.04)
-- Node.js 18+ (for running tests only)
+- Node.js 18+ (for running tests only — not needed at runtime)
 
 ## Install
 
 ```bash
+git clone https://github.com/science/cinnamon-multirow-windowlist.git
+cd cinnamon-multirow-windowlist
 ./install.sh
 ```
 
-The install script:
-1. Checks Cinnamon is installed
-2. Validates all required files are present (`applet.js`, `helpers.js`, `metadata.json`, `settings-schema.json`)
-3. Verifies the UUID in `metadata.json` matches
-4. Creates a symlink from the repo into `~/.local/share/cinnamon/applets/`
-5. Warns if the stock `window-list@cinnamon.org` is still enabled (role conflict)
+The install script validates files, checks Cinnamon is installed, creates a symlink into `~/.local/share/cinnamon/applets/`, and warns if the stock window-list is still enabled.
 
-After running, enable the applet:
+After running:
+
 1. Right-click the panel → **Applets**
-2. Search for "Multi-Row Window List" → add it
-3. Remove the stock "Window list" to avoid the `windowattentionhandler` role conflict
+2. Search for **Multi-Row Window List** → add it
+3. Remove the stock **Window list** (they share the `windowattentionhandler` role — only one can be active)
 4. Restart Cinnamon: `Alt+F2` → type `r` → Enter
 
 ## Configuration
 
 Right-click the applet → **Configure**:
 
+### Multi-Row
+
 | Setting | Default | Description |
 |---------|---------|-------------|
-| Maximum rows | 2 | How many rows before buttons stop wrapping (1-4) |
-| Icon size override | 0 (auto) | Force icon size in pixels, or 0 for auto-scaling |
+| Maximum rows | 2 | How many rows before buttons stop wrapping (1 = single row, like stock) |
+| Group windows | On | Keep windows from the same app together in the list |
+
+### Button Appearance
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Icon size override | 0 (auto) | Force icon size in pixels, or 0 for auto-scaling to row height |
 | Label font size | 0 (system) | Force font size in pt, or 0 for system default |
 | Allow text wrap | On | Let titles wrap to multiple lines in spacious mode |
+
+### Inherited Settings
+
+All stock window-list settings are preserved: show all workspaces, attention alerts, scrolling, left-click minimize, middle-click close, button width, hover previews (thumbnail/title/nothing), and preview scale.
 
 ## Uninstall
 
@@ -53,24 +66,19 @@ Right-click the applet → **Configure**:
 ./uninstall.sh
 ```
 
-No GUI needed — safe to run from a TTY if Cinnamon has crashed.
-
-The uninstall script:
-1. Removes `multirow-window-list@cinnamon` from dconf `enabled-applets`
-2. Deletes the symlink or directory at `~/.local/share/cinnamon/applets/multirow-window-list@cinnamon`
-3. Warns if no stock window-list is enabled (so you know to re-add one)
+Safe to run from a TTY if Cinnamon has crashed. Removes the applet from dconf `enabled-applets` and deletes the symlink. Warns if no stock window-list is left enabled.
 
 Then restart Cinnamon:
 - **From desktop**: `Alt+F2` → type `r` → Enter
-- **From TTY** (if Cinnamon crashed): `DISPLAY=:0 cinnamon --replace &`
+- **From TTY**: `DISPLAY=:0 cinnamon --replace &`
 
-## Running Tests
+## Tests
 
 ```bash
-npm test
+npm test    # 105 unit tests
 ```
 
-52 tests covering helper calculations, settings schema validation, and applet safety checks.
+Tests cover helper calculations, settings schema validation, and applet safety checks (signal cleanup, timer safety, layout correctness).
 
 ## License
 

@@ -36,6 +36,13 @@ describe('settings-schema.json', () => {
             assert.equal(s.min, 1);
             assert.equal(s.max, 4);
         });
+
+        it('has group-windows switch defaulting to true', () => {
+            const s = schema['group-windows'];
+            assert.ok(s, 'missing group-windows');
+            assert.equal(s.type, 'switch');
+            assert.equal(s.default, true);
+        });
     });
 
     describe('Button Appearance section', () => {

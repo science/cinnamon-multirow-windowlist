@@ -1,0 +1,64 @@
+#cloud-config
+hostname: cinnamon-dev
+manage_etc_hosts: true
+timezone: America/New_York
+
+users:
+  - name: steve
+    groups: sudo, adm, nopasswdlogin
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    lock_passwd: false
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBVH1K5VT5PTSxo+LeWlJ3s1HxVht7CJ79i2BeXXtk7X steve@kubuntu-bambam
+
+chpasswd:
+  expire: false
+  list:
+    - steve:dev
+
+package_update: true
+package_upgrade: false
+
+packages:
+  # Desktop (matches host apt-desktop.txt)
+  - cinnamon-desktop-environment
+  - lightdm
+  - slick-greeter
+  - gnome-terminal
+  # Common tools (matches host apt-common.txt)
+  - curl
+  - git
+  - gh
+  - gpg
+  - htop
+  - jq
+  - tree
+  - vim
+  - yadm
+  # Build/dev tools
+  - build-essential
+  - nodejs
+  - npm
+  # VM guest tools
+  - spice-vdagent
+
+write_files:
+  - path: /etc/lightdm/lightdm.conf.d/50-autologin.conf
+    content: |
+      [Seat:*]
+      autologin-user=steve
+      autologin-session=cinnamon2d
+
+runcmd:
+  - systemctl set-default graphical.target
+  - mkdir -p /mnt/host-dev
+  - echo 'devmount /mnt/host-dev virtiofs defaults 0 0' >> /etc/fstab
+  - systemctl enable spice-vdagent
+
+final_message: "Cloud-init provisioning complete after $UPTIME seconds"
+
+power_state:
+  mode: reboot
+  message: "Rebooting into Cinnamon desktop"
+  timeout: 30

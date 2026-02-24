@@ -94,6 +94,18 @@ describe('applet.js safety checks', () => {
             );
         });
 
+        it('uses actor allocation width in _onAllocationChanged (not parent zone width)', () => {
+            const methodMatch = appletSource.match(
+                /_onAllocationChanged\s*\(\)\s*\{([\s\S]*?)^\s{4}\}/m
+            );
+            assert.ok(methodMatch, 'could not find _onAllocationChanged body');
+            const body = methodMatch[1];
+            assert.ok(
+                body.includes('get_allocation_box'),
+                '_onAllocationChanged must use get_allocation_box() for width (not parent.get_width() which returns full zone width)'
+            );
+        });
+
         it('sets min_width = 0 in on_orientation_changed for horizontal', () => {
             // After set_layout_manager in the horizontal branch, min_width must be set to 0
             const pattern = /on_orientation_changed[\s\S]*?FlowLayout[\s\S]*?set_layout_manager[\s\S]*?min_width\s*=\s*0/;
@@ -152,4 +164,118 @@ describe('applet.js safety checks', () => {
             );
         });
     });
+
+    describe('window grouping by app', () => {
+        it('imports calcGroupedInsertionIndex from helpers', () => {
+            assert.ok(
+                appletSource.includes('calcGroupedInsertionIndex'),
+                'applet.js must import calcGroupedInsertionIndex from helpers'
+            );
+        });
+
+        it('_addWindow uses insert_child_at_index for grouped insertion', () => {
+            const methodMatch = appletSource.match(
+                /^\s{4}_addWindow\s*\([\s\S]*?\)\s*\{([\s\S]*?)^\s{4}\}/m
+            );
+            assert.ok(methodMatch, 'could not find _addWindow body');
+            const body = methodMatch[1];
+            assert.ok(
+                body.includes('insert_child_at_index'),
+                '_addWindow must use insert_child_at_index for grouped window placement'
+            );
+        });
+
+        it('_addWindow calls calcGroupedInsertionIndex', () => {
+            const methodMatch = appletSource.match(
+                /^\s{4}_addWindow\s*\([\s\S]*?\)\s*\{([\s\S]*?)^\s{4}\}/m
+            );
+            assert.ok(methodMatch, 'could not find _addWindow body');
+            const body = methodMatch[1];
+            assert.ok(
+                body.includes('calcGroupedInsertionIndex'),
+                '_addWindow must call calcGroupedInsertionIndex to compute insertion position'
+            );
+        });
+
+        it('_addWindow checks groupWindows setting', () => {
+            const methodMatch = appletSource.match(
+                /^\s{4}_addWindow\s*\([\s\S]*?\)\s*\{([\s\S]*?)^\s{4}\}/m
+            );
+            assert.ok(methodMatch, 'could not find _addWindow body');
+            const body = methodMatch[1];
+            assert.ok(
+                body.includes('groupWindows'),
+                '_addWindow must check this.groupWindows setting to gate grouped insertion'
+            );
+        });
+    });
+
+    describe('spacious float-left layout', () => {
+        // Extract _allocate method body for all tests in this block
+        const allocateMatch = appletSource.match(
+            /_allocate\s*\([\s\S]*?\)\s*\{([\s\S]*?)^\s{4}\}/m
+        );
+        const allocateBody = allocateMatch ? allocateMatch[1] : '';
+
+        it('uses Pango indent for first-line text offset', () => {
+            assert.ok(allocateBody.includes('set_indent'), '_allocate must call set_indent for first-line text offset');
+            assert.ok(allocateBody.includes('Pango.SCALE'), '_allocate must use Pango.SCALE for indent units');
+            assert.ok(allocateBody.includes('_spaciousIndent'), '_allocate must store indent in _spaciousIndent for paint handler');
+        });
+
+        it('accesses ClutterText for Pango layout', () => {
+            // The spacious branch needs get_clutter_text to access the Pango layout
+            assert.ok(
+                allocateBody.includes('get_clutter_text'),
+                'spacious branch must call get_clutter_text to access Pango layout'
+            );
+        });
+
+        it('has paint handler for indent persistence', () => {
+            // set_indent on PangoLayout is lost when ClutterText recreates its
+            // layout cache. A paint signal handler re-applies the stored indent.
+            assert.ok(
+                appletSource.includes("connect('paint'") || appletSource.includes('connect("paint"'),
+                'must connect to ClutterText paint signal for indent persistence'
+            );
+            assert.ok(
+                appletSource.includes('_spaciousIndent'),
+                'must use _spaciousIndent to persist indent value across paint cycles'
+            );
+        });
+
+        it('caps icon size to label line height', () => {
+            assert.ok(
+                allocateBody.includes('labelNatHeight'),
+                'spacious branch must use labelNatHeight to cap icon size'
+            );
+            assert.ok(
+                allocateBody.includes('maxIconSize'),
+                'spacious branch must compute maxIconSize from label line height'
+            );
+        });
+
+        it('snaps label height to whole-line boundary', () => {
+            assert.ok(
+                allocateBody.includes('maxLines'),
+                'spacious branch must compute maxLines for whole-line snap'
+            );
+            assert.ok(
+                allocateBody.includes('maxLines * lineHeight'),
+                'spacious branch must use maxLines * lineHeight to snap label height'
+            );
+        });
+
+        it('does not use iconBottom in spacious branch', () => {
+            // The old spacious layout used iconBottom to stack label below icon.
+            // Float-left layout should not use this pattern.
+            const spaciousBranch = allocateBody.match(/\} else \{[\s\S]*?Spacious mode[\s\S]*?(?=if \(!this\.progressOverlay)/);
+            assert.ok(spaciousBranch, 'could not find spacious else-branch in _allocate');
+            assert.ok(
+                !spaciousBranch[0].includes('iconBottom'),
+                'spacious branch must not use iconBottom — float-left layout positions label at same y as icon'
+            );
+        });
+    });
+
 });

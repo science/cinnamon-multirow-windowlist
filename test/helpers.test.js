@@ -1,9 +1,9 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const {
-    calcRowHeight, calcIconSize, calcButtonHeight,
+    calcRowHeight, calcButtonHeight,
     calcAdaptiveRowCount, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize,
-    calcButtonWidth
+    calcButtonWidth, calcGroupedInsertionIndex
 } = require('../helpers');
 
 describe('calcRowHeight', () => {
@@ -25,31 +25,6 @@ describe('calcRowHeight', () => {
 
     it('floors fractional results', () => {
         assert.equal(calcRowHeight(100, 3), 33);
-    });
-});
-
-describe('calcIconSize', () => {
-    it('auto-scales to rowHeight - 8 when override is 0', () => {
-        // panelHeight=80, rows=2 → rowHeight=40 → icon=32
-        assert.equal(calcIconSize(80, 2, 0), 32);
-    });
-
-    it('uses override when positive', () => {
-        assert.equal(calcIconSize(80, 2, 24), 24);
-    });
-
-    it('enforces minimum of 16 when auto-scaling', () => {
-        // panelHeight=80, rows=4 → rowHeight=20 → 20-8=12 → clamped to 16
-        assert.equal(calcIconSize(80, 4, 0), 16);
-    });
-
-    it('does not clamp override values (user knows best)', () => {
-        assert.equal(calcIconSize(80, 4, 12), 12);
-    });
-
-    it('auto-scales for single row', () => {
-        // panelHeight=48, rows=1 → rowHeight=48 → 48-8=40
-        assert.equal(calcIconSize(48, 1, 0), 40);
     });
 });
 
@@ -145,12 +120,12 @@ describe('calcAdaptiveFontSize', () => {
 });
 
 describe('calcAdaptiveIconSize', () => {
-    it('auto-scales for single row', () => {
-        // floor(60*0.4) = 24
-        assert.equal(calcAdaptiveIconSize(60, 1, 0), 24);
+    it('uses 0.25 ratio for spacious mode (1 row)', () => {
+        // floor(60*0.25) = 15
+        assert.equal(calcAdaptiveIconSize(60, 1, 0), 15);
     });
 
-    it('auto-scales for 2 rows', () => {
+    it('uses 0.4 ratio for compact mode (2 rows)', () => {
         // floor(60/2) = 30, floor(30*0.4) = 12
         assert.equal(calcAdaptiveIconSize(60, 2, 0), 12);
     });
@@ -159,14 +134,19 @@ describe('calcAdaptiveIconSize', () => {
         assert.equal(calcAdaptiveIconSize(60, 2, 16), 16);
     });
 
-    it('clamps to 12px minimum', () => {
-        // floor(40/2)-8 = 20-8 = 12
+    it('spacious on 80px panel gives 20px icon', () => {
+        // floor(80*0.25) = 20
+        assert.equal(calcAdaptiveIconSize(80, 1, 0), 20);
+    });
+
+    it('clamps to 12px minimum in compact mode', () => {
+        // floor(40/2) = 20, floor(20*0.4) = 8 → clamped to 12
         assert.equal(calcAdaptiveIconSize(40, 2, 0), 12);
     });
 
-    it('enforces 12px floor for very small rows', () => {
-        // floor(36/2)-8 = 18-8 = 10 → clamped to 12
-        assert.equal(calcAdaptiveIconSize(36, 2, 0), 12);
+    it('clamps to 12px minimum in spacious mode', () => {
+        // floor(40*0.25) = 10 → clamped to 12
+        assert.equal(calcAdaptiveIconSize(40, 1, 0), 12);
     });
 });
 
@@ -213,3 +193,46 @@ describe('calcButtonWidth', () => {
         assert.equal(calcButtonWidth(938, 13, 150, 2, 50), 134);
     });
 });
+
+describe('calcGroupedInsertionIndex', () => {
+    it('returns 0 for empty list', () => {
+        assert.equal(calcGroupedInsertionIndex([], 'firefox.desktop'), 0);
+    });
+
+    it('returns end index when no match (new app)', () => {
+        assert.equal(calcGroupedInsertionIndex(['firefox', 'terminal'], 'nautilus'), 2);
+    });
+
+    it('inserts after single match at start', () => {
+        assert.equal(calcGroupedInsertionIndex(['firefox', 'terminal'], 'firefox'), 1);
+    });
+
+    it('inserts after single match at end', () => {
+        assert.equal(calcGroupedInsertionIndex(['terminal', 'firefox'], 'firefox'), 2);
+    });
+
+    it('inserts after single match in middle', () => {
+        assert.equal(calcGroupedInsertionIndex(['terminal', 'firefox', 'nautilus'], 'firefox'), 2);
+    });
+
+    it('inserts after last of multiple consecutive matches', () => {
+        assert.equal(calcGroupedInsertionIndex(['firefox', 'firefox', 'terminal'], 'firefox'), 2);
+    });
+
+    it('inserts after last of multiple non-consecutive matches', () => {
+        assert.equal(calcGroupedInsertionIndex(['firefox', 'terminal', 'firefox', 'nautilus'], 'firefox'), 3);
+    });
+
+    it('returns end index for null newAppId', () => {
+        assert.equal(calcGroupedInsertionIndex(['firefox', 'terminal'], null), 2);
+    });
+
+    it('returns end index for undefined newAppId', () => {
+        assert.equal(calcGroupedInsertionIndex(['firefox', 'terminal'], undefined), 2);
+    });
+
+    it('handles null entries in existing list', () => {
+        assert.equal(calcGroupedInsertionIndex(['firefox', null, 'firefox'], 'firefox'), 3);
+    });
+});
+

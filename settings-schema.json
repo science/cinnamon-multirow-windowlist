@@ -104,6 +104,11 @@
       "units": "rows",
       "description": "Maximum rows for window buttons (1 = never wrap)"
   },
+  "group-windows": {
+      "type": "switch",
+      "default": true,
+      "description": "Group windows from the same application together"
+  },
   "section-button-appearance": {
     "type": "section",
     "description": "Button Appearance"

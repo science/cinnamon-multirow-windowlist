@@ -66,7 +66,7 @@ const SignalManager = imports.misc.signalManager;
 const Tooltips = imports.ui.tooltips;
 const WindowUtils = imports.misc.windowUtils;
 
-const { calcAdaptiveRowCount, calcButtonWidth, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize } = require('./helpers');
+const { calcAdaptiveRowCount, calcButtonWidth, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize, calcGroupedInsertionIndex } = require('./helpers');
 
 const MAX_TEXT_LENGTH = 1000;
 const FLASH_INTERVAL = 500;
@@ -311,6 +311,21 @@ class AppMenuButton {
 
         this._label = new St.Label();
         this.actor.add_actor(this._label);
+
+        // Paint handler: re-apply Pango indent before each render.
+        // set_indent() on PangoLayout is lost when ClutterText recreates
+        // its layout cache (triggered by _setupLabelWrapping/updateLabelStyle
+        // calling set_ellipsize/set_style). Re-applying in the paint signal
+        // (which fires before the class paint method) ensures the indent
+        // is always on the cached layout that clutter_text_paint() will use.
+        this._spaciousIndent = 0;
+        let _ct = this._label.get_clutter_text();
+        _ct.connect('paint', () => {
+            let layout = _ct.get_layout();
+            if (layout) {
+                layout.set_indent(this._spaciousIndent);
+            }
+        });
 
         this.updateLabelVisible();
         this._setupLabelWrapping();
@@ -710,6 +725,7 @@ class AppMenuButton {
 
         if (mode === 'compact') {
             // Compact mode: icon top-left, label right of icon, single line
+            this._spaciousIndent = 0;
             let iconPad = 2;
             childBox.x1 = box.x1 + iconPad;
             childBox.x2 = childBox.x1 + Math.min(naturalWidth, allocWidth - iconPad);
@@ -733,25 +749,43 @@ class AppMenuButton {
                 this._label.allocate(childBox, flags);
             }
         } else {
-            // Spacious mode: small icon upper-left, label below spanning full width
+            // Spacious mode: icon top-left, label full-width with first-line indent.
             let iconPad = 2;
 
+            // Cap icon to one text line height to prevent overlap with line 2+.
+            let [, , , labelNatHeight] = this._label.get_preferred_size();
+            let maxIconSize = labelNatHeight > 0 ? labelNatHeight : naturalHeight;
+            let iconSize = Math.min(naturalWidth, naturalHeight, maxIconSize);
+
+            // Icon: top-left corner, capped to line height
             childBox.x1 = box.x1 + iconPad;
-            childBox.x2 = childBox.x1 + Math.min(naturalWidth, allocWidth - iconPad);
+            childBox.x2 = childBox.x1 + Math.min(iconSize, allocWidth - iconPad);
             childBox.y1 = box.y1 + iconPad;
-            childBox.y2 = childBox.y1 + Math.min(naturalHeight, allocHeight - iconPad);
-            let iconBottom = childBox.y2;
+            childBox.y2 = childBox.y1 + Math.min(iconSize, allocHeight - iconPad);
+            let iconWidth = childBox.x2 - childBox.x1;
             this._iconBox.allocate(childBox, flags);
 
             if (this.drawLabel) {
-                [minWidth, minHeight, naturalWidth, naturalHeight] = this._label.get_preferred_size();
+                // Snap y2 to whole-line boundary to prevent partial-glyph clipping.
+                let availableHeight = box.y2 - (box.y1 + iconPad);
+                let lineHeight = labelNatHeight;
+                let maxLines = lineHeight > 0 ? Math.floor(availableHeight / lineHeight) : 1;
+                maxLines = Math.max(maxLines, 1);
 
                 childBox.x1 = box.x1 + iconPad;
                 childBox.x2 = box.x2;
-                childBox.y1 = iconBottom + 1;
-                childBox.y2 = box.y2;
-
+                childBox.y1 = box.y1 + iconPad;
+                childBox.y2 = childBox.y1 + (maxLines * lineHeight);
                 this._label.allocate(childBox, flags);
+
+                // Store indent for paint handler (see constructor).
+                // Also set directly as best-effort if cache isn't invalidated.
+                this._spaciousIndent = (iconWidth + spacing + 2) * Pango.SCALE;
+                let ct = this._label.get_clutter_text();
+                let layout = ct.get_layout();
+                if (layout) {
+                    layout.set_indent(this._spaciousIndent);
+                }
             }
         }
 
@@ -1127,6 +1161,7 @@ class CinnamonWindowListApplet extends Applet.Applet {
 
         // Multi-row settings
         this.settings.bind("max-rows", "maxRows", this._onLayoutSettingsChanged);
+        this.settings.bind("group-windows", "groupWindows");
         this.settings.bind("icon-size-override", "iconSizeOverride", this._onAppearanceSettingsChanged);
         this.settings.bind("label-font-size", "labelFontSize", this._onAppearanceSettingsChanged);
         this.settings.bind("label-wrap", "labelWrap", this._onAppearanceSettingsChanged);
@@ -1274,19 +1309,17 @@ class CinnamonWindowListApplet extends Applet.Applet {
         if (this._inAllocationUpdate) return;
         this._inAllocationUpdate = true;
         try {
-            let parent = this.actor.get_parent();
-            if (parent) {
-                let width = parent.get_width();
-                if (width > 0) {
-                    this.manager_container.set_width(width);
-                    this.manager_container.min_width = 0;
-                    // Cache the stable container width for use by _recomputeAdaptiveRows.
-                    // parent.get_width() returns the correct zone width here because
-                    // notify::allocation fires AFTER the panel allocates this actor.
-                    let actorHPad = this.actor.get_theme_node().get_horizontal_padding();
-                    this._lastStableContainerWidth = width - actorHPad;
-                    this._recomputeAdaptiveRows();
-                }
+            let allocBox = this.actor.get_allocation_box();
+            let width = allocBox.x2 - allocBox.x1;
+            if (width > 0) {
+                this.manager_container.set_width(width);
+                this.manager_container.min_width = 0;
+                // Cache the stable container width for use by _recomputeAdaptiveRows.
+                // get_allocation_box() returns the applet's actual allocation within its
+                // panel zone, not the full zone width (which parent.get_width() returns).
+                let actorHPad = this.actor.get_theme_node().get_horizontal_padding();
+                this._lastStableContainerWidth = width - actorHPad;
+                this._recomputeAdaptiveRows();
             }
         } finally {
             this._inAllocationUpdate = false;
@@ -1580,7 +1613,23 @@ class CinnamonWindowListApplet extends Applet.Applet {
                 return;
 
         let appButton = new AppMenuButton(this, metaWindow, transient);
-        this.manager_container.add_actor(appButton.actor);
+
+        if (this.groupWindows) {
+            let tracker = Cinnamon.WindowTracker.get_default();
+            let newApp = tracker.get_window_app(metaWindow);
+            let newAppId = newApp ? newApp.get_id() : null;
+            let children = this.manager_container.get_children();
+            let existingAppIds = children.map(child => {
+                let btn = child._delegate;
+                if (!btn || !btn.metaWindow) return null;
+                let app = tracker.get_window_app(btn.metaWindow);
+                return app ? app.get_id() : null;
+            });
+            let insertIndex = calcGroupedInsertionIndex(existingAppIds, newAppId);
+            this.manager_container.insert_child_at_index(appButton.actor, insertIndex);
+        } else {
+            this.manager_container.add_actor(appButton.actor);
+        }
 
         this._windows.push(appButton);
 
