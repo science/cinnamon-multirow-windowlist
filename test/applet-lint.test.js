@@ -321,4 +321,25 @@ describe('applet.js safety checks', () => {
         });
     });
 
+    describe('button height accounts for CSS box model', () => {
+        it('_getPreferredHeight subtracts border and margin from target row height', () => {
+            // GenericContainer's get-preferred-height signal returns content height;
+            // St adds border+padding on top, and CSS margin sits outside.
+            // Without subtracting both, buttons overflow the panel.
+            const methodMatch = appletSource.match(
+                /_getPreferredHeight\s*\([\s\S]*?\)\s*\{([\s\S]*?)^\s{4}\}/m
+            );
+            assert.ok(methodMatch, 'could not find _getPreferredHeight body');
+            const body = methodMatch[1];
+            assert.ok(
+                body.includes('get_border_width'),
+                '_getPreferredHeight must read border width from theme node'
+            );
+            assert.ok(
+                body.includes('margin-bottom'),
+                '_getPreferredHeight must read margin from theme node'
+            );
+        });
+    });
+
 });

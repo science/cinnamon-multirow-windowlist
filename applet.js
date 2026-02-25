@@ -704,7 +704,20 @@ class AppMenuButton {
 
         if (this._applet.orientation == St.Side.TOP || this._applet.orientation == St.Side.BOTTOM ) {
             /* Scale button height to fit multiple rows within the panel */
-            alloc.natural_size = Math.floor(this._applet._panelHeight / this._applet._computedRows);
+            /* Target: each row occupies floor(panelHeight / rows) pixels total,
+             * including the button's allocation box PLUS its CSS margin.
+             * GenericContainer's get-preferred-height signal returns the content
+             * height; St then adds border+padding (vOverhead) to form the
+             * allocation box. CSS margin sits outside the allocation box.
+             * So: content = targetRow - margin - border - padding. */
+            let tn = actor.get_theme_node();
+            let vOverhead = tn.get_vertical_padding()
+                + tn.get_border_width(0) + tn.get_border_width(2);
+            let vMargin = tn.get_length('margin-bottom')
+                + tn.get_length('margin-top');
+            let targetRow = Math.floor(
+                this._applet._panelHeight / this._applet._computedRows);
+            alloc.natural_size = targetRow - vOverhead - vMargin;
         } else {
             alloc.natural_size = naturalSize1;
         }
@@ -841,7 +854,7 @@ class AppMenuButton {
         let fontSize = this._applet.labelFontSize;
         // Auto-calculate font size based on adaptive layout
         if (fontSize === 0) {
-            let autoSize = calcAdaptiveFontSize(this._applet._panelHeight, this._applet._computedRows);
+            let autoSize = calcAdaptiveFontSize(this._applet._panelHeight, this._applet._computedRows, this._applet._buttonVerticalMargin);
             if (autoSize > 0) {
                 style += `font-size: ${autoSize}pt;`;
             }
@@ -1173,6 +1186,8 @@ class CinnamonWindowListApplet extends Applet.Applet {
 
         // Adaptive row state (derived, not a setting)
         this._computedRows = 1;
+        this._buttonVerticalMargin = 0;
+        this._buttonVerticalOverhead = 0;
         this._effectiveButtonWidth = this.buttonWidth;
         this._iconOnlyMode = false;
         this._inAllocationUpdate = false;
@@ -1278,13 +1293,11 @@ class CinnamonWindowListApplet extends Applet.Applet {
         if (orientation == St.Side.TOP) {
             for (let child of this.manager_container.get_children()) {
                 child.set_style_class_name('window-list-item-box top');
-                child.set_style('margin-top: 0px; padding-top: 0px;');
             }
             this.actor.set_style('margin-top: 0px; padding-top: 0px;');
         } else if (orientation == St.Side.BOTTOM) {
             for (let child of this.manager_container.get_children()) {
                 child.set_style_class_name('window-list-item-box bottom');
-                child.set_style('margin-bottom: 0px; padding-bottom: 0px;');
             }
             this.actor.set_style('margin-bottom: 0px; padding-bottom: 0px;');
         } else if (orientation == St.Side.LEFT) {
@@ -1353,9 +1366,17 @@ class CinnamonWindowListApplet extends Applet.Applet {
         // FlowLayout sees the total width (content + padding), so calculations must use
         // total widths. ceil() accounts for sub-pixel rounding in St's padding math.
         let hPad = 0;
+        let vMargin = 0;
+        let vOverhead = 0;
         if (this._windows.length > 0) {
-            hPad = Math.ceil(this._windows[0].actor.get_theme_node().get_horizontal_padding());
+            let tn = this._windows[0].actor.get_theme_node();
+            hPad = Math.ceil(tn.get_horizontal_padding());
+            vMargin = Math.ceil(tn.get_length('margin-bottom'));
+            vOverhead = tn.get_vertical_padding()
+                + tn.get_border_width(0) + tn.get_border_width(2);
         }
+        this._buttonVerticalMargin = vMargin;
+        this._buttonVerticalOverhead = vOverhead;
         let totalButtonWidth = this.buttonWidth + hPad;
 
         let newRows = calcAdaptiveRowCount(containerWidth, visibleCount, totalButtonWidth, this.maxRows);
@@ -1408,7 +1429,7 @@ class CinnamonWindowListApplet extends Applet.Applet {
     }
 
     _recalcIconSize() {
-        this.icon_size = calcAdaptiveIconSize(this._panelHeight, this._computedRows, this.iconSizeOverride);
+        this.icon_size = calcAdaptiveIconSize(this._panelHeight, this._computedRows, this.iconSizeOverride, this._buttonVerticalMargin);
     }
 
     _onLayoutSettingsChanged() {

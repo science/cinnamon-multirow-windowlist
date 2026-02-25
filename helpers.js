@@ -9,8 +9,9 @@
  * @param {number} numberOfRows - Number of rows (1-4)
  * @returns {number} Row height in pixels (floored)
  */
-function calcRowHeight(panelHeight, numberOfRows) {
-    return Math.floor(panelHeight / numberOfRows);
+function calcRowHeight(panelHeight, numberOfRows, verticalMargin = 0) {
+    let available = panelHeight - (verticalMargin * numberOfRows);
+    return Math.floor(available / numberOfRows);
 }
 
 /**
@@ -19,8 +20,8 @@ function calcRowHeight(panelHeight, numberOfRows) {
  * @param {number} numberOfRows - Number of rows (1-4)
  * @returns {number} Button height in pixels (floored)
  */
-function calcButtonHeight(panelHeight, numberOfRows) {
-    return calcRowHeight(panelHeight, numberOfRows);
+function calcButtonHeight(panelHeight, numberOfRows, verticalMargin = 0) {
+    return calcRowHeight(panelHeight, numberOfRows, verticalMargin);
 }
 
 /**
@@ -74,9 +75,9 @@ function calcLayoutMode(computedRows) {
  * @param {number} computedRows - Number of computed rows
  * @returns {number} Font size in pt (0 = use default theme font)
  */
-function calcAdaptiveFontSize(panelHeight, computedRows) {
+function calcAdaptiveFontSize(panelHeight, computedRows, verticalMargin = 0) {
     if (computedRows <= 1) return 0;
-    let rowHeight = Math.floor(panelHeight / computedRows);
+    let rowHeight = calcRowHeight(panelHeight, computedRows, verticalMargin);
     return Math.max(6, Math.min(10, Math.floor(rowHeight / 3.5)));
 }
 
@@ -87,9 +88,9 @@ function calcAdaptiveFontSize(panelHeight, computedRows) {
  * @param {number} overrideSize - User override (0 = auto-scale)
  * @returns {number} Icon size in pixels
  */
-function calcAdaptiveIconSize(panelHeight, computedRows, overrideSize) {
+function calcAdaptiveIconSize(panelHeight, computedRows, overrideSize, verticalMargin = 0) {
     if (overrideSize > 0) return overrideSize;
-    let rowHeight = Math.floor(panelHeight / computedRows);
+    let rowHeight = calcRowHeight(panelHeight, computedRows, verticalMargin);
     let ratio = computedRows <= 1 ? 0.25 : 0.4;
     return Math.max(12, Math.floor(rowHeight * ratio));
 }

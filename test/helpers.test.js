@@ -26,6 +26,18 @@ describe('calcRowHeight', () => {
     it('floors fractional results', () => {
         assert.equal(calcRowHeight(100, 3), 33);
     });
+
+    it('subtracts vertical margin (60px, 2 rows, 3px margin)', () => {
+        assert.equal(calcRowHeight(60, 2, 3), 27);
+    });
+
+    it('defaults to 0 margin for backwards compat', () => {
+        assert.equal(calcRowHeight(60, 2), 30);
+    });
+
+    it('handles single row with margin', () => {
+        assert.equal(calcRowHeight(60, 1, 3), 57);
+    });
 });
 
 describe('calcButtonHeight', () => {
@@ -39,6 +51,14 @@ describe('calcButtonHeight', () => {
 
     it('works for 3 rows', () => {
         assert.equal(calcButtonHeight(96, 3), 32);
+    });
+
+    it('accounts for vertical margin (60px, 2 rows, 3px)', () => {
+        assert.equal(calcButtonHeight(60, 2, 3), 27);
+    });
+
+    it('backwards compat with no margin arg', () => {
+        assert.equal(calcButtonHeight(60, 2), 30);
     });
 });
 
@@ -117,6 +137,11 @@ describe('calcAdaptiveFontSize', () => {
         // 40px/2 = 20, floor(20/3.5) = floor(5.7) = 5 → clamped to 6
         assert.equal(calcAdaptiveFontSize(40, 2), 6);
     });
+
+    it('uses margin-adjusted row height (60px, 2 rows, 3px margin)', () => {
+        // rowHeight = (60-6)/2 = 27, floor(27/3.5) = 7
+        assert.equal(calcAdaptiveFontSize(60, 2, 3), 7);
+    });
 });
 
 describe('calcAdaptiveIconSize', () => {
@@ -147,6 +172,11 @@ describe('calcAdaptiveIconSize', () => {
     it('clamps to 12px minimum in spacious mode', () => {
         // floor(40*0.25) = 10 → clamped to 12
         assert.equal(calcAdaptiveIconSize(40, 1, 0), 12);
+    });
+
+    it('uses margin-adjusted row height (60px, 2 rows, 0 override, 3px margin)', () => {
+        // rowHeight = (60-6)/2 = 27, floor(27*0.4) = 10 → clamped to 12
+        assert.equal(calcAdaptiveIconSize(60, 2, 0, 3), 12);
     });
 });
 

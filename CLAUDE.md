@@ -55,6 +55,8 @@ Cinnamon 6.0.4 desktop applet (forked from stock `window-list@cinnamon.org`) tha
 - `set_ellipsize(END)` suppresses `set_line_wrap(true)` — spacious mode must use `EllipsizeMode.NONE`
 - `this.actor.get_size()` returns inflated preferred size — use `this.actor.get_parent().get_width()` for actual panel zone width
 - `on_applet_removed_from_panel()` must destroy all window button instances to avoid GC crashes
+- **St GenericContainer box model**: The `get-preferred-height` signal handler returns **content** height. St adds border+padding on top to form the allocation box. CSS margin sits outside the allocation box entirely. When computing per-row button height, the handler must subtract both border+padding (via `get_vertical_padding()` + `get_border_width()`) AND margin (via `get_length('margin-bottom')`) from the target row height. Failure to do this causes row overflow — buttons physically extend beyond the panel. Note: the default Cinnamon theme has NO margin/border on `.window-list-item-box`, so this bug only manifests with themes like Pragmatic-Darker-Blue that set `margin-bottom: 3px` and `border: 1px solid`.
+- **Don't strip CSS margins with inline styles** — previously `on_orientation_changed()` used `set_style('margin-bottom: 0px')` to work around the overflow, but this only applied to buttons that existed at init time. Dynamically added buttons (new windows) retained the CSS margin. The correct fix is to account for margins in the height calculation rather than stripping them.
 
 ## VM Testing (REQUIRED)
 
