@@ -682,7 +682,9 @@ class AppMenuButton {
                     alloc.natural_size = Math.max(this._applet._effectiveButtonWidth * global.ui_scale,
                             naturalSize + spacing + lnaturalSize);
                 } else {
-                    alloc.natural_size = this._applet._effectiveButtonWidth * global.ui_scale;
+                    alloc.natural_size = Math.min(
+                        this._applet._effectiveButtonWidth * global.ui_scale,
+                        this._applet.buttonWidth * global.ui_scale);
                 }
             } else {
                 alloc.natural_size = naturalSize
@@ -1192,6 +1194,7 @@ class CinnamonWindowListApplet extends Applet.Applet {
         this._iconOnlyMode = false;
         this._inAllocationUpdate = false;
         this._lastStableContainerWidth = 0;
+        this._lastVisibleCount = 0;
 
         this.signals.connect(global.display, 'window-created', this._onWindowAddedAsync, this);
         this.signals.connect(global.display, 'window-monitor-changed', this._onWindowMonitorChanged, this);
@@ -1361,31 +1364,36 @@ class CinnamonWindowListApplet extends Applet.Applet {
             containerWidth = rawWidth - actorHPad;
         }
         let visibleCount = this._windows.filter(w => w.actor.visible).length;
+        let wasEmpty = this._lastVisibleCount === 0;
+        this._lastVisibleCount = visibleCount;
 
-        // St adds CSS padding on top of what _getPreferredWidth's alloc.natural_size reports.
-        // FlowLayout sees the total width (content + padding), so calculations must use
-        // total widths. ceil() accounts for sub-pixel rounding in St's padding math.
-        let hPad = 0;
+        // St adds CSS padding+border on top of what _getPreferredWidth's alloc.natural_size
+        // reports. FlowLayout sees the total width (content + padding + border + margin), so
+        // calculations must use total widths. ceil() accounts for sub-pixel rounding.
+        let hOverhead = 0;
         let vMargin = 0;
         let vOverhead = 0;
         if (this._windows.length > 0) {
             let tn = this._windows[0].actor.get_theme_node();
-            hPad = Math.ceil(tn.get_horizontal_padding());
+            let hMargin = tn.get_length('margin-left') + tn.get_length('margin-right');
+            hOverhead = Math.ceil(tn.get_horizontal_padding()
+                + tn.get_border_width(1) + tn.get_border_width(3)
+                + hMargin);
             vMargin = Math.ceil(tn.get_length('margin-bottom'));
             vOverhead = tn.get_vertical_padding()
                 + tn.get_border_width(0) + tn.get_border_width(2);
         }
         this._buttonVerticalMargin = vMargin;
         this._buttonVerticalOverhead = vOverhead;
-        let totalButtonWidth = this.buttonWidth + hPad;
+        let totalButtonWidth = this.buttonWidth + hOverhead;
 
         let newRows = calcAdaptiveRowCount(containerWidth, visibleCount, totalButtonWidth, this.maxRows);
 
         // Tier 1: Shrink buttons to fit all windows in maxRows
         const ICON_ONLY_THRESHOLD = 50;
-        let totalMinWidth = ICON_ONLY_THRESHOLD + hPad;
+        let totalMinWidth = ICON_ONLY_THRESHOLD + hOverhead;
         let totalEffective = calcButtonWidth(containerWidth, visibleCount, totalButtonWidth, this.maxRows, totalMinWidth);
-        let newEffectiveWidth = totalEffective - hPad;
+        let newEffectiveWidth = totalEffective - hOverhead;
 
         // Tier 2: Icon-only when buttons too narrow for useful labels
         let newIconOnly = newEffectiveWidth <= ICON_ONLY_THRESHOLD && visibleCount > 0
@@ -1408,7 +1416,7 @@ class CinnamonWindowListApplet extends Applet.Applet {
             }
         }
 
-        if (widthChanged) {
+        if (widthChanged || (wasEmpty && visibleCount > 0)) {
             // Invalidate each button's cached preferred size so they
             // report the new _effectiveButtonWidth on next query.
             for (let window of this._windows) {
@@ -1705,6 +1713,8 @@ class CinnamonWindowListApplet extends Applet.Applet {
     */
 
     _applySavedOrder() {
+        if (this.groupWindows) return;
+
         let order = this.lastWindowOrder.split("::");
 
         order.reverse();

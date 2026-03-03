@@ -75,10 +75,21 @@ Then restart Cinnamon:
 ## Tests
 
 ```bash
-npm test    # 128 unit tests
+npm test    # 141 unit tests
 ```
 
-Tests cover helper calculations, settings schema validation, and applet safety checks (signal cleanup, timer safety, layout correctness).
+Tests cover helper calculations, settings schema validation, and applet safety checks (signal cleanup, timer safety, CSS box model, grouping correctness).
+
+### VM E2E Tests
+
+End-to-end tests run inside a libvirt/KVM VM with a real Cinnamon desktop:
+
+```bash
+bash test/vm-panel-test.sh          # Panel zone layout (0-50 windows)
+bash test/vm-grouping-test.sh       # Window grouping (5 scenarios)
+```
+
+Requires the `cinnamon-dev` VM — see `CLAUDE.md` for VM setup details.
 
 ## License
 

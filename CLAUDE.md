@@ -27,6 +27,7 @@ Cinnamon 6.0.4 desktop applet (forked from stock `window-list@cinnamon.org`) tha
 | `test/schema.test.js` | Settings schema validation tests |
 | `test/applet-lint.test.js` | Safety checks (cleanup, signals, timers) |
 | `test/vm-panel-test.sh` | Automated VM panel zone tests (0-50 windows) |
+| `test/vm-grouping-test.sh` | E2E VM test for window grouping (5 scenarios) |
 | `test/smoke-test.sh` | Lightweight crash-detection test (Xephyr-based) |
 | `vm/vm-ctl.sh` | VM lifecycle management (start, stop, ssh, snapshot, revert, viewer) |
 | `vm/create-vm.sh` | Create VM from Ubuntu cloud image with cloud-init provisioning |
@@ -34,7 +35,7 @@ Cinnamon 6.0.4 desktop applet (forked from stock `window-list@cinnamon.org`) tha
 
 ## Commands
 
-- **Run unit tests**: `npm test` (105+ tests, Node.js 18+)
+- **Run unit tests**: `npm test` (141 tests, Node.js 18+)
 - **Install**: `./install.sh` (validates files, creates symlink, warns about stock applet conflict)
 - **Uninstall**: `./uninstall.sh` (removes from dconf + deletes symlink; safe from TTY if Cinnamon crashed)
 - **Restart Cinnamon**: `Alt+F2 → r → Enter` or from TTY: `DISPLAY=:0 cinnamon --replace &`
@@ -57,6 +58,7 @@ Cinnamon 6.0.4 desktop applet (forked from stock `window-list@cinnamon.org`) tha
 - `on_applet_removed_from_panel()` must destroy all window button instances to avoid GC crashes
 - **St GenericContainer box model**: The `get-preferred-height` signal handler returns **content** height. St adds border+padding on top to form the allocation box. CSS margin sits outside the allocation box entirely. When computing per-row button height, the handler must subtract both border+padding (via `get_vertical_padding()` + `get_border_width()`) AND margin (via `get_length('margin-bottom')`) from the target row height. Failure to do this causes row overflow — buttons physically extend beyond the panel. Note: the default Cinnamon theme has NO margin/border on `.window-list-item-box`, so this bug only manifests with themes like Pragmatic-Darker-Blue that set `margin-bottom: 3px` and `border: 1px solid`.
 - **Don't strip CSS margins with inline styles** — previously `on_orientation_changed()` used `set_style('margin-bottom: 0px')` to work around the overflow, but this only applied to buttons that existed at init time. Dynamically added buttons (new windows) retained the CSS margin. The correct fix is to account for margins in the height calculation rather than stripping them.
+- **`_applySavedOrder` must be skipped when grouping is enabled** — the stock window-list saves/restores button order by XID (`lastWindowOrder` in dconf). On Cinnamon restart, `_applySavedOrder()` reorders buttons to match the stale XID list, overriding the grouped insertion done by `_addWindow()`. When `groupWindows` is true, the method returns early so grouped insertion produces the correct order during startup.
 
 ## VM Testing (REQUIRED)
 
@@ -165,6 +167,28 @@ EOF
 echo 'Main.panel._rightBox.get_width()' | ./vm/vm-ctl.sh ssh "DISPLAY=:0 python3 /tmp/cinnamon-eval.py"
 ```
 
+### How vm-grouping-test.sh Works
+
+E2E test for window grouping correctness. Runs 5 scenarios (16 assertions) in the VM:
+
+1. **Fresh grouping** — interleaved app launches, verifies same-app windows are contiguous
+2. **Grouping survives restart** — verifies grouped order persists across Cinnamon restart
+3. **Three apps** — adds one window per app, verifies each joins its group
+4. **Rapid creation** — race condition test for WindowTracker app ID lookup
+5. **Stale saved order** — scrambles container order via D-Bus, saves to dconf, restarts, verifies grouping is restored (not corrupted by stale XIDs)
+
+```bash
+bash test/vm-grouping-test.sh    # Requires VM running, xterm + gedit installed
+```
+
+**Key patterns**:
+- Uses D-Bus `org.Cinnamon.Eval` to query container child order (`get_child_at_index`, `_delegate.metaWindow`)
+- `check_grouping` function validates that windows with the same `.desktop` app ID are contiguous in the container
+- Skips `window:NNN` pseudo-IDs (apps without `.desktop` files, like xclock/xeyes) since they can't be grouped
+- Scrambles order via D-Bus `set_child_at_index` to simulate stale saved order without manual drag
+
+**VM prerequisites**: `sudo apt install -y xterm x11-apps gedit` (not in `clean-baseline` snapshot)
+
 ### Smoke Test (Xephyr-based, no VM needed)
 
 `test/smoke-test.sh` is a lightweight crash-detection test using Xephyr (nested X display). Verifies the applet doesn't crash Cinnamon or generate excessive errors. Useful for quick sanity checks without spinning up the VM.
@@ -182,3 +206,4 @@ bash test/smoke-test.sh    # Requires: sudo apt install xserver-xephyr
 - **Screenshots**: `xwd -root | convert xwd:- png:output.png` (gnome-screenshot/scrot produce black with virtio GPU)
 - **virsh shutdown unreliable**: cloud-init VMs may not respond to ACPI shutdown; vm-ctl.sh uses SSH shutdown + force-off fallback
 - **Cinnamon D-Bus eval quoting**: pipe JS through stdin to the Python helper — shell quoting with nested quotes is unreliable
+- **clean-baseline lacks test packages**: `xterm`, `x11-apps`, `gedit` are NOT in the snapshot — install after every revert: `./vm/vm-ctl.sh ssh 'sudo apt install -y xterm x11-apps gedit'`

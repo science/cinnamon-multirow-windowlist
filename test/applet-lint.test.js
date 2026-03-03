@@ -208,6 +208,18 @@ describe('applet.js safety checks', () => {
                 '_addWindow must check this.groupWindows setting to gate grouped insertion'
             );
         });
+
+        it('_applySavedOrder skips when groupWindows is enabled', () => {
+            const methodMatch = appletSource.match(
+                /_applySavedOrder\s*\(\)\s*\{([\s\S]*?)^\s{4}\}/m
+            );
+            assert.ok(methodMatch, 'could not find _applySavedOrder body');
+            const body = methodMatch[1];
+            assert.ok(
+                body.includes('groupWindows'),
+                '_applySavedOrder must check groupWindows to avoid overriding grouped insertion order'
+            );
+        });
     });
 
     describe('multi-row drag-and-drop', () => {
@@ -317,6 +329,55 @@ describe('applet.js safety checks', () => {
             assert.ok(
                 !spaciousBranch[0].includes('iconBottom'),
                 'spacious branch must not use iconBottom — float-left layout positions label at same y as icon'
+            );
+        });
+    });
+
+    describe('button width accounts for CSS box model', () => {
+        it('_recomputeAdaptiveRows includes horizontal border widths', () => {
+            const methodMatch = appletSource.match(
+                /_recomputeAdaptiveRows\s*\(\)\s*\{([\s\S]*?)^\s{4}\}/m
+            );
+            assert.ok(methodMatch, 'could not find _recomputeAdaptiveRows body');
+            const body = methodMatch[1];
+            assert.ok(
+                body.includes('get_border_width(1)') && body.includes('get_border_width(3)'),
+                '_recomputeAdaptiveRows must include get_border_width(1) and get_border_width(3) for horizontal borders'
+            );
+        });
+
+        it('_recomputeAdaptiveRows includes horizontal margins', () => {
+            const methodMatch = appletSource.match(
+                /_recomputeAdaptiveRows\s*\(\)\s*\{([\s\S]*?)^\s{4}\}/m
+            );
+            assert.ok(methodMatch, 'could not find _recomputeAdaptiveRows body');
+            const body = methodMatch[1];
+            assert.ok(
+                body.includes('margin-left') && body.includes('margin-right'),
+                '_recomputeAdaptiveRows must include horizontal margins in overhead calculation'
+            );
+        });
+
+        it('uses hOverhead naming (not hPad) for full CSS overhead', () => {
+            const methodMatch = appletSource.match(
+                /_recomputeAdaptiveRows\s*\(\)\s*\{([\s\S]*?)^\s{4}\}/m
+            );
+            assert.ok(methodMatch, 'could not find _recomputeAdaptiveRows body');
+            const body = methodMatch[1];
+            assert.ok(
+                body.includes('hOverhead'),
+                '_recomputeAdaptiveRows must use hOverhead (not hPad) to reflect full CSS box model'
+            );
+            assert.ok(
+                !body.match(/\bhPad\b/),
+                '_recomputeAdaptiveRows must not use hPad — rename to hOverhead'
+            );
+        });
+
+        it('tracks _lastVisibleCount for 0→N transition', () => {
+            assert.ok(
+                appletSource.includes('_lastVisibleCount'),
+                'applet must track _lastVisibleCount for workspace-switch FlowLayout refresh'
             );
         });
     });

@@ -31,8 +31,31 @@ if ! virsh list --all 2>/dev/null | grep -q "$VM_NAME"; then
     VIRSH="sudo virsh"
 fi
 
+get_vm_mac() {
+    $VIRSH domiflist "$VM_NAME" 2>/dev/null | awk '/virtio|e1000|rtl/{print $5}' | head -1
+}
+
 get_ip() {
-    $VIRSH domifaddr "$VM_NAME" 2>/dev/null | grep -oP '\d+\.\d+\.\d+\.\d+' | head -1
+    local ip
+
+    # Method 1: guest agent (most reliable when installed)
+    ip=$($VIRSH domifaddr "$VM_NAME" --source agent 2>/dev/null \
+         | grep -v '127\.0\.0\.1' | grep -oP '\d+\.\d+\.\d+\.\d+' | head -1)
+    [[ -n "$ip" ]] && echo "$ip" && return
+
+    # Method 2: DHCP leases (default method)
+    ip=$($VIRSH domifaddr "$VM_NAME" 2>/dev/null \
+         | grep -oP '\d+\.\d+\.\d+\.\d+' | head -1)
+    [[ -n "$ip" ]] && echo "$ip" && return
+
+    # Method 3: ARP table lookup by MAC address
+    local mac
+    mac=$(get_vm_mac)
+    if [[ -n "$mac" ]]; then
+        ip=$(ip neigh show dev virbr0 2>/dev/null \
+             | grep -i "$mac" | grep -oP '\d+\.\d+\.\d+\.\d+' | head -1)
+        [[ -n "$ip" ]] && echo "$ip" && return
+    fi
 }
 
 wait_for_ip() {
@@ -82,7 +105,7 @@ case "${1:-help}" in
         ;;
 
     viewer)
-        virt-viewer "$VM_NAME" &
+        virt-viewer --attach "$VM_NAME" &
         disown
         echo "SPICE viewer launched."
         ;;
