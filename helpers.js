@@ -140,11 +140,165 @@ function calcDragInsertionIndex(childRects, cursorX, cursorY, isVertical) {
     return insertPos;
 }
 
+/**
+ * Parse pin rules from a JSON string.
+ * Validates fields, pre-compiles title regexes. Invalid entries are dropped silently.
+ * @param {string} jsonString - JSON array of pin rule objects
+ * @returns {Array<{appId: string, titleRegex: RegExp|null, priority: number}>}
+ */
+function parsePinRules(jsonString) {
+    let raw;
+    try {
+        raw = JSON.parse(jsonString);
+    } catch (e) {
+        return [];
+    }
+    if (!Array.isArray(raw)) return [];
+    let results = [];
+    for (let i = 0; i < raw.length; i++) {
+        let entry = raw[i];
+        if (!entry || typeof entry.appId !== 'string' || !entry.appId) continue;
+        if (typeof entry.priority !== 'number' || !isFinite(entry.priority)) continue;
+        let titleRegex = null;
+        if (entry.title !== undefined && entry.title !== null) {
+            if (typeof entry.title !== 'string') continue;
+            try {
+                titleRegex = new RegExp(entry.title);
+            } catch (e) {
+                continue;
+            }
+        }
+        results.push({ appId: entry.appId, titleRegex: titleRegex, priority: entry.priority });
+    }
+    return results;
+}
+
+/**
+ * Find the matching pin rule for a window.
+ * Match logic: appId must match exactly; if rule has titleRegex, it must match windowTitle.
+ * Returns the matching rule with the lowest priority, or null.
+ * @param {Array<{appId: string, titleRegex: RegExp|null, priority: number}>} rules
+ * @param {string|null} appId
+ * @param {string|null} windowTitle
+ * @returns {{appId: string, titleRegex: RegExp|null, priority: number}|null}
+ */
+function matchPinRule(rules, appId, windowTitle) {
+    if (!appId) return null;
+    let best = null;
+    for (let i = 0; i < rules.length; i++) {
+        let rule = rules[i];
+        if (rule.appId !== appId) continue;
+        if (rule.titleRegex !== null) {
+            if (!windowTitle || !rule.titleRegex.test(windowTitle)) continue;
+        }
+        if (best === null || rule.priority < best.priority) {
+            best = rule;
+        }
+    }
+    return best;
+}
+
+/**
+ * Find insertion index for a pinned button among existing children.
+ * Pinned buttons are sorted by priority; within same priority+appId, append after last sibling.
+ * @param {Array<{pinPriority: number|null, appId: string|null}>} children - existing button info
+ * @param {number} newPriority - priority of new pinned button
+ * @param {string} newAppId - app ID of new pinned button
+ * @returns {number} insertion index
+ */
+function calcPinnedInsertionIndex(children, newPriority, newAppId) {
+    let lastSiblingIndex = -1;
+    let firstHigherIndex = -1;
+    for (let i = 0; i < children.length; i++) {
+        let child = children[i];
+        if (child.pinPriority === null) {
+            // First unpinned button — all pinned must be before this
+            if (firstHigherIndex === -1) firstHigherIndex = i;
+            break;
+        }
+        if (child.pinPriority === newPriority && child.appId === newAppId) {
+            lastSiblingIndex = i;
+        } else if (child.pinPriority > newPriority && firstHigherIndex === -1) {
+            firstHigherIndex = i;
+        }
+    }
+    if (lastSiblingIndex !== -1) return lastSiblingIndex + 1;
+    if (firstHigherIndex !== -1) return firstHigherIndex;
+    // All existing pinned have lower or equal priority — append after all pinned
+    for (let i = 0; i < children.length; i++) {
+        if (children[i].pinPriority === null) return i;
+    }
+    return children.length;
+}
+
+/**
+ * Compute the full sorted button order with pinned buttons first, then unpinned.
+ * Pinned sorted by priority, then appId (alpha), then title (alpha), then original index.
+ * Unpinned maintain their relative order.
+ * @param {Array<{pinPriority: number|null, appId: string|null, title: string|null, originalIndex: number}>} buttons
+ * @returns {Array<number>} Array of originalIndex values in the new order
+ */
+function calcSortedButtonOrder(buttons) {
+    let pinned = [];
+    let unpinned = [];
+    for (let i = 0; i < buttons.length; i++) {
+        let b = buttons[i];
+        if (b.pinPriority !== null && b.pinPriority !== undefined) {
+            pinned.push(b);
+        } else {
+            unpinned.push(b);
+        }
+    }
+    pinned.sort(function(a, b) {
+        if (a.pinPriority !== b.pinPriority) return a.pinPriority - b.pinPriority;
+        let appCmp = (a.appId || '').localeCompare(b.appId || '');
+        if (appCmp !== 0) return appCmp;
+        let titleCmp = (a.title || '').localeCompare(b.title || '');
+        if (titleCmp !== 0) return titleCmp;
+        return a.originalIndex - b.originalIndex;
+    });
+    let result = [];
+    for (let i = 0; i < pinned.length; i++) result.push(pinned[i].originalIndex);
+    for (let i = 0; i < unpinned.length; i++) result.push(unpinned[i].originalIndex);
+    return result;
+}
+
+/**
+ * Build pin rules array from editor row data.
+ * Rows with invalid (non-numeric) priority are skipped.
+ * @param {Array<{appId: string, title: string, priority: string}>} rows - Editor row data
+ * @returns {Array<{appId: string, title: string, priority: number}>} Valid rules
+ */
+function buildEditorRules(rows) {
+    let result = [];
+    for (let i = 0; i < rows.length; i++) {
+        let p = parseInt(rows[i].priority);
+        if (isNaN(p)) continue;
+        result.push({ appId: rows[i].appId, title: rows[i].title, priority: p });
+    }
+    return result;
+}
+
+/**
+ * Remove a pin rule matching the given appId and priority.
+ * @param {Array<{appId: string, title: string, priority: number}>} rawRules - Current raw rules
+ * @param {string} appId - App ID to match
+ * @param {number} priority - Priority to match
+ * @returns {Array<{appId: string, title: string, priority: number}>} Filtered rules
+ */
+function filterPinRule(rawRules, appId, priority) {
+    return rawRules.filter(function(r) {
+        return !(r.appId === appId && r.priority === priority);
+    });
+}
+
 // Export for Node.js testing; ignored in GJS runtime
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         calcRowHeight, calcButtonHeight,
         calcAdaptiveRowCount, calcButtonWidth, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize,
-        calcGroupedInsertionIndex, calcDragInsertionIndex
+        calcGroupedInsertionIndex, calcDragInsertionIndex,
+        parsePinRules, matchPinRule, calcPinnedInsertionIndex, calcSortedButtonOrder,
+        buildEditorRules, filterPinRule
     };
 }

@@ -109,6 +109,10 @@
       "default": true,
       "description": "Group windows from the same application together"
   },
+  "pin-rules": {
+      "type": "generic",
+      "default": "[]"
+  },
   "section-button-appearance": {
     "type": "section",
     "description": "Button Appearance"

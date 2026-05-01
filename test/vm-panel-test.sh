@@ -39,6 +39,13 @@ VM_CTL="$PROJECT_DIR/vm/vm-ctl.sh"
 SCREENSHOT_DIR="$SCRIPT_DIR/screenshots"
 APPLET_UUID="multirow-window-list@cinnamon"
 
+# --- Local-mode detection ---
+# When running inside the VM (virtio-fs mount visible), skip SSH wrappers.
+IS_LOCAL=false
+if [[ -f /mnt/host-dev/cinnamon-multirow-windowlist/applet.js ]]; then
+    IS_LOCAL=true
+fi
+
 # --- Defaults ---
 DEFAULT_COUNTS=(0 1 10 20 30 40 50)
 SETTLE_TIME=3          # seconds to wait after opening windows
@@ -64,8 +71,27 @@ WARNINGS=0
 RIGHT_ZONE_MODE=false
 SAVED_DCONF=""
 
-# --- SSH helpers ---
-# Get VM IP once and cache it
+# --- Command helpers (dual-mode: local or SSH) ---
+
+# Run a command: locally if IS_LOCAL, via SSH otherwise.
+run_cmd() {
+    if $IS_LOCAL; then
+        eval "$@"
+    else
+        vm_ssh "$@"
+    fi
+}
+
+# Run a command with DISPLAY=:0.
+run_display() {
+    if $IS_LOCAL; then
+        DISPLAY=:0 eval "$@"
+    else
+        vm_ssh "DISPLAY=:0 $*"
+    fi
+}
+
+# --- SSH helpers (remote mode only) ---
 VM_IP=""
 get_vm_ip() {
     if [[ -z "$VM_IP" ]]; then
@@ -87,15 +113,10 @@ vm_ssh() {
     ssh $SSH_OPTS "steve@$ip" "$@"
 }
 
-# Run a command on the VM with DISPLAY set, properly detached from SSH
-vm_run() {
-    vm_ssh "DISPLAY=:0 $*"
-}
-
-# Install a Python helper on the VM for quoting-safe D-Bus eval.
+# Install a Python helper for quoting-safe D-Bus eval.
 # JS code goes through stdin, avoiding all shell quoting issues.
 install_eval_helper() {
-    vm_ssh "cat > /tmp/cinnamon-eval.py" << 'EVAL_HELPER'
+    cat > /tmp/cinnamon-eval.py << 'EVAL_HELPER'
 #!/usr/bin/env python3
 """Read JS from stdin, eval via Cinnamon D-Bus, print result."""
 import subprocess, sys, re
@@ -122,12 +143,19 @@ else:
     print("PARSE_ERROR: " + output, file=sys.stderr)
     sys.exit(1)
 EVAL_HELPER
+    if ! $IS_LOCAL; then
+        vm_ssh "cat > /tmp/cinnamon-eval.py" < /tmp/cinnamon-eval.py
+    fi
 }
 
 # Evaluate JavaScript in the running Cinnamon process via D-Bus.
 # JS is piped through stdin to avoid shell quoting issues.
 cinnamon_eval() {
-    echo "$1" | vm_ssh "DISPLAY=:0 python3 /tmp/cinnamon-eval.py"
+    if $IS_LOCAL; then
+        echo "$1" | DISPLAY=:0 python3 /tmp/cinnamon-eval.py
+    else
+        echo "$1" | vm_ssh "DISPLAY=:0 python3 /tmp/cinnamon-eval.py"
+    fi
 }
 
 # --- Test result helpers ---
@@ -162,8 +190,8 @@ open_windows() {
     if [[ $count -eq 0 ]]; then
         return
     fi
-    # Create a batch script on the VM via stdin to avoid quoting hell
-    vm_ssh "cat > /tmp/open-test-windows.sh" <<REMOTE_SCRIPT
+    # Create a batch script to avoid quoting hell
+    cat > /tmp/open-test-windows.sh <<REMOTE_SCRIPT
 #!/bin/bash
 for i in \$(seq 1 $count); do
     setsid xterm -title "TestWin-\$i" -e "sleep $XTERM_SLEEP" &>/dev/null &
@@ -173,21 +201,24 @@ for i in \$(seq 1 $count); do
     fi
 done
 REMOTE_SCRIPT
-    vm_run "bash /tmp/open-test-windows.sh"
+    if ! $IS_LOCAL; then
+        vm_ssh "cat > /tmp/open-test-windows.sh" < /tmp/open-test-windows.sh
+    fi
+    run_display "bash /tmp/open-test-windows.sh"
 }
 
 # Close all test windows
 close_windows() {
-    vm_run 'xdotool search --name "^TestWin-" 2>/dev/null | while read wid; do xdotool windowclose "$wid" 2>/dev/null; done' || true
+    run_display 'xdotool search --name "^TestWin-" 2>/dev/null | while read wid; do xdotool windowclose "$wid" 2>/dev/null; done' || true
     sleep 1
     # Force-kill any remaining xterms from our test
-    vm_ssh 'pkill -f "xterm -title TestWin" 2>/dev/null' || true
+    run_cmd 'pkill -f "xterm -title TestWin" 2>/dev/null' || true
 }
 
 # Count currently open test windows
 count_windows() {
     local result
-    result=$(vm_run 'xdotool search --name "^TestWin-" 2>/dev/null | wc -l' 2>/dev/null)
+    result=$(run_display 'xdotool search --name "^TestWin-" 2>/dev/null | wc -l' 2>/dev/null)
     echo "${result:-0}"
 }
 
@@ -197,8 +228,12 @@ take_screenshot() {
     local filename="vm-panel-${label}.png"
     mkdir -p "$SCREENSHOT_DIR"
     # xwd captures X11 display, convert to PNG
-    vm_run "xwd -root -silent | convert xwd:- png:/tmp/screenshot.png" 2>/dev/null
-    scp $SSH_OPTS "steve@$(get_vm_ip):/tmp/screenshot.png" "$SCREENSHOT_DIR/$filename" 2>/dev/null
+    run_display "xwd -root -silent | convert xwd:- png:/tmp/screenshot.png" 2>/dev/null
+    if $IS_LOCAL; then
+        cp /tmp/screenshot.png "$SCREENSHOT_DIR/$filename" 2>/dev/null
+    else
+        scp $SSH_OPTS "steve@$(get_vm_ip):/tmp/screenshot.png" "$SCREENSHOT_DIR/$filename" 2>/dev/null
+    fi
     echo "$SCREENSHOT_DIR/$filename"
 }
 
@@ -263,7 +298,7 @@ check_errors() {
     local since_marker="$1"
     # Look for errors mentioning our applet UUID after the marker
     local errors
-    errors=$(vm_ssh "sed -n '/$since_marker/,\$p' ~/.xsession-errors 2>/dev/null \
+    errors=$(run_cmd "sed -n '/$since_marker/,\$p' ~/.xsession-errors 2>/dev/null \
         | grep -i '$APPLET_UUID' \
         | grep -iE 'error|critical|exception|segfault' \
         | head -20" 2>/dev/null || true)
@@ -274,9 +309,9 @@ check_errors() {
 
 # Save the current enabled-applets dconf value from the VM
 save_applet_dconf() {
-    SAVED_DCONF=$(vm_ssh "dconf read /org/cinnamon/enabled-applets" 2>/dev/null)
+    SAVED_DCONF=$(run_cmd "dconf read /org/cinnamon/enabled-applets" 2>/dev/null)
     if [[ -z "$SAVED_DCONF" ]]; then
-        echo -e "${RED}FATAL: Cannot read enabled-applets from VM${NC}" >&2
+        echo -e "${RED}FATAL: Cannot read enabled-applets${NC}" >&2
         exit 1
     fi
 }
@@ -285,7 +320,7 @@ save_applet_dconf() {
 move_applet_to_right_zone() {
     echo -e "${CYAN}Moving applet to right zone...${NC}"
     local new_dconf
-    new_dconf=$(vm_ssh "dconf read /org/cinnamon/enabled-applets" 2>/dev/null \
+    new_dconf=$(run_cmd "dconf read /org/cinnamon/enabled-applets" 2>/dev/null \
         | python3 -c "
 import sys, ast
 raw = sys.stdin.read().strip()
@@ -306,9 +341,9 @@ print(updated)
         echo -e "${RED}FATAL: Failed to compute new dconf value${NC}" >&2
         exit 1
     fi
-    vm_ssh "dconf write /org/cinnamon/enabled-applets \"$new_dconf\"" 2>/dev/null
+    run_cmd "dconf write /org/cinnamon/enabled-applets \"$new_dconf\"" 2>/dev/null
     echo "  Restarting Cinnamon..."
-    vm_run "cinnamon --replace &>/dev/null &" 2>/dev/null || true
+    run_display "cinnamon --replace &>/dev/null &" 2>/dev/null || true
     sleep 5
     echo -e "  ${GREEN}Applet moved to right zone${NC}"
 }
@@ -320,9 +355,9 @@ restore_applet_dconf() {
     fi
     echo ""
     echo -e "${CYAN}Restoring original applet layout...${NC}"
-    vm_ssh "dconf write /org/cinnamon/enabled-applets \"$SAVED_DCONF\"" 2>/dev/null
+    run_cmd "dconf write /org/cinnamon/enabled-applets \"$SAVED_DCONF\"" 2>/dev/null
     echo "  Restarting Cinnamon..."
-    vm_run "cinnamon --replace &>/dev/null &" 2>/dev/null || true
+    run_display "cinnamon --replace &>/dev/null &" 2>/dev/null || true
     sleep 5
     echo -e "  ${GREEN}Original layout restored${NC}"
     SAVED_DCONF=""
@@ -332,29 +367,33 @@ restore_applet_dconf() {
 preflight() {
     echo -e "${BOLD}Pre-flight checks${NC}"
 
-    # VM running?
-    local status
-    status=$("$VM_CTL" status 2>/dev/null | grep -o 'running' || true)
-    if [[ "$status" != "running" ]]; then
-        echo -e "  ${RED}FATAL: VM is not running${NC}"
-        echo "  Start with: $VM_CTL start"
-        exit 1
-    fi
-    test_result "VM is running" "pass"
+    if $IS_LOCAL; then
+        test_result "Local mode (in-VM)" "pass"
+    else
+        # VM running?
+        local status
+        status=$("$VM_CTL" status 2>/dev/null | grep -o 'running' || true)
+        if [[ "$status" != "running" ]]; then
+            echo -e "  ${RED}FATAL: VM is not running${NC}"
+            echo "  Start with: $VM_CTL start"
+            exit 1
+        fi
+        test_result "VM is running" "pass"
 
-    # SSH works?
-    local hostname
-    hostname=$(vm_ssh "hostname" 2>/dev/null || true)
-    if [[ -z "$hostname" ]]; then
-        echo -e "  ${RED}FATAL: Cannot SSH to VM${NC}"
-        exit 1
+        # SSH works?
+        local hostname
+        hostname=$(vm_ssh "hostname" 2>/dev/null || true)
+        if [[ -z "$hostname" ]]; then
+            echo -e "  ${RED}FATAL: Cannot SSH to VM${NC}"
+            exit 1
+        fi
+        test_result "SSH to VM ($hostname)" "pass"
     fi
-    test_result "SSH to VM ($hostname)" "pass"
 
     # xterm available?
-    if ! vm_ssh "which xterm" &>/dev/null; then
-        echo -e "  ${RED}FATAL: xterm not installed in VM${NC}"
-        echo "  Install with: $VM_CTL ssh 'sudo apt install -y xterm'"
+    if ! run_cmd "which xterm" &>/dev/null; then
+        echo -e "  ${RED}FATAL: xterm not installed${NC}"
+        echo "  Install with: sudo apt install -y xterm"
         exit 1
     fi
     test_result "xterm available" "pass"
@@ -400,7 +439,7 @@ run_test_case() {
 
     # Drop a marker in xsession-errors so we can check for new errors
     local marker="VM_PANEL_TEST_MARKER_${window_count}_$(date +%s)"
-    vm_ssh "echo '$marker' >> ~/.xsession-errors" 2>/dev/null
+    run_cmd "echo '$marker' >> ~/.xsession-errors" 2>/dev/null
 
     # Open windows
     if [[ $window_count -gt 0 ]]; then
@@ -616,10 +655,14 @@ main() {
 
     # Optional: revert to clean baseline
     if $do_revert; then
-        echo -e "${CYAN}Reverting to clean-baseline snapshot...${NC}"
-        "$VM_CTL" revert clean-baseline
-        "$VM_CTL" start
-        sleep 10   # wait for boot + Cinnamon
+        if $IS_LOCAL; then
+            echo -e "${YELLOW}WARNING: --revert requires host access to virsh. Skipping.${NC}"
+        else
+            echo -e "${CYAN}Reverting to clean-baseline snapshot...${NC}"
+            "$VM_CTL" revert clean-baseline
+            "$VM_CTL" start
+            sleep 10   # wait for boot + Cinnamon
+        fi
         echo ""
     fi
 
@@ -627,7 +670,7 @@ main() {
 
     # Restart Cinnamon to ensure latest code is loaded
     echo -e "${CYAN}Restarting Cinnamon to load latest applet code...${NC}"
-    vm_run "cinnamon --replace &>/dev/null &" 2>/dev/null || true
+    run_display "cinnamon --replace &>/dev/null &" 2>/dev/null || true
     sleep 5
     echo ""
 

@@ -3,7 +3,9 @@ const assert = require('node:assert/strict');
 const {
     calcRowHeight, calcButtonHeight,
     calcAdaptiveRowCount, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize,
-    calcButtonWidth, calcGroupedInsertionIndex, calcDragInsertionIndex
+    calcButtonWidth, calcGroupedInsertionIndex, calcDragInsertionIndex,
+    parsePinRules, matchPinRule, calcPinnedInsertionIndex, calcSortedButtonOrder,
+    buildEditorRules, filterPinRule
 } = require('../helpers');
 
 describe('calcRowHeight', () => {
@@ -266,6 +268,66 @@ describe('calcGroupedInsertionIndex', () => {
     });
 });
 
+describe('calcAdaptiveRowCount — row transition boundary', () => {
+    it('transitions from 2 rows to 1 at exact boundary', () => {
+        // containerWidth=900, buttonWidth=150 → buttonsPerRow=6
+        // 7 windows → ceil(7/6)=2 rows; 6 windows → ceil(6/6)=1 row
+        assert.equal(calcAdaptiveRowCount(900, 7, 150, 2), 2);
+        assert.equal(calcAdaptiveRowCount(900, 6, 150, 2), 1);
+    });
+
+    it('transitions from 1 row to 2 when adding one window', () => {
+        // 6 fit in 1 row, 7th triggers row 2
+        assert.equal(calcAdaptiveRowCount(900, 6, 150, 2), 1);
+        assert.equal(calcAdaptiveRowCount(900, 7, 150, 2), 2);
+    });
+
+    it('stays at 1 row when closing windows below boundary', () => {
+        // Simulate closing: 7→6→5→4 all stay at 1 row once below threshold
+        for (let n = 6; n >= 1; n--) {
+            assert.equal(calcAdaptiveRowCount(900, n, 150, 2), 1,
+                `${n} windows should be 1 row`);
+        }
+    });
+});
+
+describe('calcButtonHeight — margin math for theme correctness', () => {
+    it('allocation + margin fits panel for Pragmatic theme (2 rows)', () => {
+        // Pragmatic-Darker-Blue: margin-bottom=3, margin-top=0 → total vMargin=3
+        // calcButtonHeight returns allocation height (content + overhead budget)
+        // (allocation + margin) × rows must not exceed panelHeight
+        let panelHeight = 60;
+        let rows = 2;
+        let vMargin = 3;
+        let allocHeight = calcButtonHeight(panelHeight, rows, vMargin);
+        assert.ok((allocHeight + vMargin) * rows <= panelHeight,
+            `(${allocHeight} + ${vMargin}) × ${rows} = ${(allocHeight + vMargin) * rows}px > ${panelHeight}px`);
+    });
+
+    it('allocation + margin fits panel with both margins (2 rows)', () => {
+        // Theme with margin-top=3 + margin-bottom=3 → total vMargin=6
+        let panelHeight = 60;
+        let rows = 2;
+        let vMargin = 6;
+        let allocHeight = calcButtonHeight(panelHeight, rows, vMargin);
+        assert.ok((allocHeight + vMargin) * rows <= panelHeight,
+            `(${allocHeight} + ${vMargin}) × ${rows} = ${(allocHeight + vMargin) * rows}px > ${panelHeight}px`);
+    });
+
+    it('allocation + margin fits panel for single row', () => {
+        let panelHeight = 60;
+        let rows = 1;
+        let vMargin = 3;
+        let allocHeight = calcButtonHeight(panelHeight, rows, vMargin);
+        assert.ok((allocHeight + vMargin) * rows <= panelHeight,
+            `(${allocHeight} + ${vMargin}) × ${rows} = ${(allocHeight + vMargin) * rows}px > ${panelHeight}px`);
+    });
+
+    it('margin=0 gives same result as no-margin calcButtonHeight', () => {
+        assert.equal(calcButtonHeight(60, 2, 0), calcButtonHeight(60, 2));
+    });
+});
+
 describe('calcDragInsertionIndex', () => {
     // Layout for multi-row tests:
     //   Container: 300px wide, buttons 150px wide × 30px tall
@@ -427,6 +489,419 @@ describe('calcDragInsertionIndex', () => {
         // B2 center: (75, 45), dist = sqrt(22500 + 25) ≈ 150
         // B1 is actually closer here — that's correct behavior (nearest button wins)
         assert.equal(calcDragInsertionIndex(unevenButtons, 225, 40, false), 1);
+    });
+});
+
+describe('parsePinRules', () => {
+    it('parses valid JSON array', () => {
+        let rules = parsePinRules('[{"appId":"firefox.desktop","title":"^Mail","priority":0}]');
+        assert.equal(rules.length, 1);
+        assert.equal(rules[0].appId, 'firefox.desktop');
+        assert.equal(rules[0].priority, 0);
+        assert.ok(rules[0].titleRegex instanceof RegExp);
+        assert.ok(rules[0].titleRegex.test('Mail - Firefox'));
+    });
+
+    it('returns empty array for empty JSON array', () => {
+        assert.deepEqual(parsePinRules('[]'), []);
+    });
+
+    it('returns empty array for invalid JSON', () => {
+        assert.deepEqual(parsePinRules('not json'), []);
+    });
+
+    it('returns empty array for non-array JSON', () => {
+        assert.deepEqual(parsePinRules('{"appId":"foo"}'), []);
+    });
+
+    it('drops entries missing appId', () => {
+        let rules = parsePinRules('[{"priority":0}]');
+        assert.equal(rules.length, 0);
+    });
+
+    it('drops entries with empty appId', () => {
+        let rules = parsePinRules('[{"appId":"","priority":0}]');
+        assert.equal(rules.length, 0);
+    });
+
+    it('drops entries missing priority', () => {
+        let rules = parsePinRules('[{"appId":"firefox.desktop"}]');
+        assert.equal(rules.length, 0);
+    });
+
+    it('drops entries with non-numeric priority', () => {
+        let rules = parsePinRules('[{"appId":"firefox.desktop","priority":"high"}]');
+        assert.equal(rules.length, 0);
+    });
+
+    it('drops entries with Infinity priority', () => {
+        let rules = parsePinRules(JSON.stringify([{appId: "firefox.desktop", priority: Infinity}]));
+        assert.equal(rules.length, 0);
+    });
+
+    it('drops entries with invalid regex', () => {
+        let rules = parsePinRules('[{"appId":"firefox.desktop","title":"[invalid","priority":0}]');
+        assert.equal(rules.length, 0);
+    });
+
+    it('allows title-optional rules (titleRegex is null)', () => {
+        let rules = parsePinRules('[{"appId":"terminal.desktop","priority":3}]');
+        assert.equal(rules.length, 1);
+        assert.equal(rules[0].titleRegex, null);
+    });
+
+    it('keeps valid entries and drops invalid ones', () => {
+        let input = JSON.stringify([
+            {appId: "firefox.desktop", title: "^Mail", priority: 0},
+            {priority: 1},
+            {appId: "terminal.desktop", priority: 2}
+        ]);
+        let rules = parsePinRules(input);
+        assert.equal(rules.length, 2);
+        assert.equal(rules[0].appId, 'firefox.desktop');
+        assert.equal(rules[1].appId, 'terminal.desktop');
+    });
+
+    it('handles null title (treated as no title filter)', () => {
+        let rules = parsePinRules('[{"appId":"firefox.desktop","title":null,"priority":0}]');
+        assert.equal(rules.length, 1);
+        assert.equal(rules[0].titleRegex, null);
+    });
+});
+
+describe('matchPinRule', () => {
+    const rules = parsePinRules(JSON.stringify([
+        {appId: "firefox.desktop", title: "^Mail -", priority: 0},
+        {appId: "firefox.desktop", title: "^Calendar -", priority: 1},
+        {appId: "terminal.desktop", priority: 3},
+        {appId: "firefox.desktop", priority: 5}
+    ]));
+
+    it('matches appId + title regex', () => {
+        let match = matchPinRule(rules, 'firefox.desktop', 'Mail - Firefox');
+        assert.notEqual(match, null);
+        assert.equal(match.priority, 0);
+    });
+
+    it('matches second title rule', () => {
+        let match = matchPinRule(rules, 'firefox.desktop', 'Calendar - Firefox');
+        assert.notEqual(match, null);
+        assert.equal(match.priority, 1);
+    });
+
+    it('appId-only rule matches any title', () => {
+        let match = matchPinRule(rules, 'terminal.desktop', 'bash - ~');
+        assert.notEqual(match, null);
+        assert.equal(match.priority, 3);
+    });
+
+    it('returns lowest priority match when multiple rules match', () => {
+        // "Some Page - Firefox" matches appId-only rule (priority 5) but not title rules
+        let match = matchPinRule(rules, 'firefox.desktop', 'Some Page - Firefox');
+        assert.notEqual(match, null);
+        assert.equal(match.priority, 5);
+    });
+
+    it('title rule wins over appId-only rule when both match (lower priority)', () => {
+        // "Mail - Firefox" matches title rule (priority 0) and appId-only rule (priority 5)
+        let match = matchPinRule(rules, 'firefox.desktop', 'Mail - Firefox');
+        assert.equal(match.priority, 0);
+    });
+
+    it('returns null for no match', () => {
+        assert.equal(matchPinRule(rules, 'nautilus.desktop', 'Files'), null);
+    });
+
+    it('returns null for null appId', () => {
+        assert.equal(matchPinRule(rules, null, 'anything'), null);
+    });
+
+    it('returns null for undefined appId', () => {
+        assert.equal(matchPinRule(rules, undefined, 'anything'), null);
+    });
+
+    it('title-requiring rule does not match null title', () => {
+        // Only the appId-only firefox rule (priority 5) should match
+        let match = matchPinRule(rules, 'firefox.desktop', null);
+        assert.notEqual(match, null);
+        assert.equal(match.priority, 5);
+    });
+
+    it('returns null for empty rules array', () => {
+        assert.equal(matchPinRule([], 'firefox.desktop', 'Mail'), null);
+    });
+});
+
+describe('calcPinnedInsertionIndex', () => {
+    it('returns 0 for empty container', () => {
+        assert.equal(calcPinnedInsertionIndex([], 0, 'firefox.desktop'), 0);
+    });
+
+    it('inserts at start when priority is lower than all existing', () => {
+        let children = [
+            {pinPriority: 5, appId: 'terminal.desktop'},
+            {pinPriority: null, appId: 'nautilus.desktop'}
+        ];
+        assert.equal(calcPinnedInsertionIndex(children, 0, 'firefox.desktop'), 0);
+    });
+
+    it('inserts after existing pinned with lower priority', () => {
+        let children = [
+            {pinPriority: 0, appId: 'firefox.desktop'},
+            {pinPriority: null, appId: 'nautilus.desktop'}
+        ];
+        assert.equal(calcPinnedInsertionIndex(children, 5, 'terminal.desktop'), 1);
+    });
+
+    it('appends after last sibling with same priority+appId', () => {
+        let children = [
+            {pinPriority: 0, appId: 'firefox.desktop'},
+            {pinPriority: 0, appId: 'firefox.desktop'},
+            {pinPriority: 5, appId: 'terminal.desktop'},
+            {pinPriority: null, appId: 'nautilus.desktop'}
+        ];
+        assert.equal(calcPinnedInsertionIndex(children, 0, 'firefox.desktop'), 2);
+    });
+
+    it('inserts before first higher priority when no siblings exist', () => {
+        let children = [
+            {pinPriority: 0, appId: 'firefox.desktop'},
+            {pinPriority: 10, appId: 'nautilus.desktop'},
+            {pinPriority: null, appId: 'gedit.desktop'}
+        ];
+        assert.equal(calcPinnedInsertionIndex(children, 5, 'terminal.desktop'), 1);
+    });
+
+    it('inserts before unpinned when all pinned have lower priority', () => {
+        let children = [
+            {pinPriority: 0, appId: 'firefox.desktop'},
+            {pinPriority: 1, appId: 'terminal.desktop'},
+            {pinPriority: null, appId: 'nautilus.desktop'},
+            {pinPriority: null, appId: 'gedit.desktop'}
+        ];
+        assert.equal(calcPinnedInsertionIndex(children, 5, 'code.desktop'), 2);
+    });
+
+    it('appends at end when all are pinned with lower priority', () => {
+        let children = [
+            {pinPriority: 0, appId: 'firefox.desktop'},
+            {pinPriority: 1, appId: 'terminal.desktop'}
+        ];
+        assert.equal(calcPinnedInsertionIndex(children, 5, 'code.desktop'), 2);
+    });
+});
+
+describe('calcSortedButtonOrder', () => {
+    it('returns original order when no rules match (all unpinned)', () => {
+        let buttons = [
+            {pinPriority: null, appId: 'firefox', title: 'A', originalIndex: 0},
+            {pinPriority: null, appId: 'terminal', title: 'B', originalIndex: 1},
+            {pinPriority: null, appId: 'nautilus', title: 'C', originalIndex: 2}
+        ];
+        assert.deepEqual(calcSortedButtonOrder(buttons), [0, 1, 2]);
+    });
+
+    it('puts all pinned before unpinned, sorted by priority', () => {
+        let buttons = [
+            {pinPriority: null, appId: 'nautilus', title: 'Files', originalIndex: 0},
+            {pinPriority: 5, appId: 'terminal', title: 'bash', originalIndex: 1},
+            {pinPriority: 0, appId: 'firefox', title: 'Mail', originalIndex: 2}
+        ];
+        assert.deepEqual(calcSortedButtonOrder(buttons), [2, 1, 0]);
+    });
+
+    it('unpinned buttons preserve relative order', () => {
+        let buttons = [
+            {pinPriority: null, appId: 'nautilus', title: 'Files', originalIndex: 0},
+            {pinPriority: 0, appId: 'firefox', title: 'Mail', originalIndex: 1},
+            {pinPriority: null, appId: 'gedit', title: 'doc.txt', originalIndex: 2},
+            {pinPriority: null, appId: 'terminal', title: 'bash', originalIndex: 3}
+        ];
+        // Pinned: [1], Unpinned in order: [0, 2, 3]
+        assert.deepEqual(calcSortedButtonOrder(buttons), [1, 0, 2, 3]);
+    });
+
+    it('sorts same-priority pinned by appId then title', () => {
+        let buttons = [
+            {pinPriority: 0, appId: 'terminal', title: 'bash', originalIndex: 0},
+            {pinPriority: 0, appId: 'firefox', title: 'Mail', originalIndex: 1},
+            {pinPriority: 0, appId: 'firefox', title: 'Calendar', originalIndex: 2}
+        ];
+        // Same priority: firefox < terminal (alpha), then Calendar < Mail
+        assert.deepEqual(calcSortedButtonOrder(buttons), [2, 1, 0]);
+    });
+
+    it('tiebreaks by originalIndex when priority+appId+title all match', () => {
+        let buttons = [
+            {pinPriority: 0, appId: 'firefox', title: 'Tab', originalIndex: 0},
+            {pinPriority: 0, appId: 'firefox', title: 'Tab', originalIndex: 1}
+        ];
+        assert.deepEqual(calcSortedButtonOrder(buttons), [0, 1]);
+    });
+
+    it('handles empty array', () => {
+        assert.deepEqual(calcSortedButtonOrder([]), []);
+    });
+
+    it('mixed pinned priorities sort correctly', () => {
+        let buttons = [
+            {pinPriority: 3, appId: 'terminal', title: 'T', originalIndex: 0},
+            {pinPriority: null, appId: 'nautilus', title: 'N', originalIndex: 1},
+            {pinPriority: 0, appId: 'firefox', title: 'Mail', originalIndex: 2},
+            {pinPriority: 1, appId: 'firefox', title: 'Calendar', originalIndex: 3},
+            {pinPriority: null, appId: 'gedit', title: 'G', originalIndex: 4}
+        ];
+        // Pinned sorted: priority 0 (idx 2), priority 1 (idx 3), priority 3 (idx 0)
+        // Unpinned in order: idx 1, idx 4
+        assert.deepEqual(calcSortedButtonOrder(buttons), [2, 3, 0, 1, 4]);
+    });
+});
+
+describe('buildEditorRules', () => {
+    it('builds rules from valid editor row data', () => {
+        let rows = [
+            { appId: 'xterm.desktop', title: 'foo', priority: '0' },
+            { appId: 'gedit.desktop', title: 'bar', priority: '5' }
+        ];
+        let result = buildEditorRules(rows);
+        assert.deepEqual(result, [
+            { appId: 'xterm.desktop', title: 'foo', priority: 0 },
+            { appId: 'gedit.desktop', title: 'bar', priority: 5 }
+        ]);
+    });
+
+    it('skips rows with non-numeric priority', () => {
+        let rows = [
+            { appId: 'a.desktop', title: 'a', priority: 'abc' },
+            { appId: 'b.desktop', title: 'b', priority: '3' },
+            { appId: 'c.desktop', title: 'c', priority: '' }
+        ];
+        assert.deepEqual(buildEditorRules(rows), [
+            { appId: 'b.desktop', title: 'b', priority: 3 }
+        ]);
+    });
+
+    it('returns empty array for empty input', () => {
+        assert.deepEqual(buildEditorRules([]), []);
+    });
+
+    it('handles negative priority', () => {
+        let rows = [{ appId: 'x.desktop', title: 't', priority: '-1' }];
+        assert.deepEqual(buildEditorRules(rows), [
+            { appId: 'x.desktop', title: 't', priority: -1 }
+        ]);
+    });
+
+    it('preserves empty title string', () => {
+        let rows = [{ appId: 'x.desktop', title: '', priority: '0' }];
+        assert.deepEqual(buildEditorRules(rows), [
+            { appId: 'x.desktop', title: '', priority: 0 }
+        ]);
+    });
+
+    it('produces valid JSON for round-trip through parsePinRules', () => {
+        let rows = [
+            { appId: 'xterm.desktop', title: 'hello.*world', priority: '2' },
+            { appId: 'gedit.desktop', title: '', priority: '0' }
+        ];
+        let built = buildEditorRules(rows);
+        let json = JSON.stringify(built);
+        let parsed = parsePinRules(json);
+        assert.equal(parsed.length, 2);
+        assert.equal(parsed[0].appId, 'xterm.desktop');
+        assert.ok(parsed[0].titleRegex instanceof RegExp);
+        assert.equal(parsed[0].titleRegex.source, 'hello.*world');
+        assert.equal(parsed[1].appId, 'gedit.desktop');
+        assert.ok(parsed[1].titleRegex instanceof RegExp); // empty string = match-all regex
+    });
+});
+
+describe('filterPinRule', () => {
+    it('removes rule matching appId and priority', () => {
+        let rules = [
+            { appId: 'a.desktop', title: 'foo', priority: 0 },
+            { appId: 'b.desktop', title: 'bar', priority: 1 },
+            { appId: 'a.desktop', title: 'baz', priority: 2 }
+        ];
+        let result = filterPinRule(rules, 'b.desktop', 1);
+        assert.deepEqual(result, [
+            { appId: 'a.desktop', title: 'foo', priority: 0 },
+            { appId: 'a.desktop', title: 'baz', priority: 2 }
+        ]);
+    });
+
+    it('does not remove when appId matches but priority differs', () => {
+        let rules = [
+            { appId: 'a.desktop', title: 'foo', priority: 0 },
+            { appId: 'a.desktop', title: 'bar', priority: 1 }
+        ];
+        let result = filterPinRule(rules, 'a.desktop', 5);
+        assert.equal(result.length, 2);
+    });
+
+    it('does not remove when priority matches but appId differs', () => {
+        let rules = [
+            { appId: 'a.desktop', title: 'foo', priority: 0 },
+            { appId: 'b.desktop', title: 'bar', priority: 0 }
+        ];
+        let result = filterPinRule(rules, 'c.desktop', 0);
+        assert.equal(result.length, 2);
+    });
+
+    it('returns empty array when removing the only rule', () => {
+        let rules = [{ appId: 'a.desktop', title: 'foo', priority: 0 }];
+        assert.deepEqual(filterPinRule(rules, 'a.desktop', 0), []);
+    });
+
+    it('does not mutate the original array', () => {
+        let rules = [
+            { appId: 'a.desktop', title: 'foo', priority: 0 },
+            { appId: 'b.desktop', title: 'bar', priority: 1 }
+        ];
+        filterPinRule(rules, 'a.desktop', 0);
+        assert.equal(rules.length, 2);
+    });
+
+    it('result round-trips through JSON and parsePinRules', () => {
+        let rules = [
+            { appId: 'a.desktop', title: 'hello', priority: 0 },
+            { appId: 'b.desktop', title: 'world', priority: 1 }
+        ];
+        let filtered = filterPinRule(rules, 'a.desktop', 0);
+        let json = JSON.stringify(filtered);
+        let parsed = parsePinRules(json);
+        assert.equal(parsed.length, 1);
+        assert.equal(parsed[0].appId, 'b.desktop');
+        assert.equal(parsed[0].priority, 1);
+    });
+});
+
+describe('pin rules serialization bug', () => {
+    it('parsePinRules output loses title field (has titleRegex instead)', () => {
+        let json = '[{"appId":"x.desktop","title":"hello","priority":0}]';
+        let parsed = parsePinRules(json);
+        // parsed has titleRegex (RegExp), not title (string)
+        assert.equal(parsed[0].titleRegex instanceof RegExp, true);
+        assert.equal(parsed[0].title, undefined);
+    });
+
+    it('JSON.stringify of parsed rules loses title regex', () => {
+        let json = '[{"appId":"x.desktop","title":"hello","priority":0}]';
+        let parsed = parsePinRules(json);
+        let reserialized = JSON.stringify(parsed);
+        // RegExp serializes as {} and 'title' key is gone — titleRegex becomes null on re-parse
+        let reparsed = parsePinRules(reserialized);
+        assert.equal(reparsed.length, 1);
+        assert.equal(reparsed[0].titleRegex, null, 'title regex is lost after round-trip through parsed rules');
+    });
+
+    it('raw rules (with title string) round-trip correctly', () => {
+        let raw = [{ appId: 'x.desktop', title: 'hello', priority: 0 }];
+        let json = JSON.stringify(raw);
+        let parsed = parsePinRules(json);
+        assert.equal(parsed.length, 1);
+        assert.equal(parsed[0].appId, 'x.desktop');
+        assert.equal(parsed[0].priority, 0);
     });
 });
 

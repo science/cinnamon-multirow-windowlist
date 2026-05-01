@@ -26,19 +26,22 @@ Cinnamon 6.0.4 desktop applet (forked from stock `window-list@cinnamon.org`) tha
 | `test/helpers.test.js` | Unit tests for helper functions |
 | `test/schema.test.js` | Settings schema validation tests |
 | `test/applet-lint.test.js` | Safety checks (cleanup, signals, timers) |
-| `test/vm-panel-test.sh` | Automated VM panel zone tests (0-50 windows) |
-| `test/vm-grouping-test.sh` | E2E VM test for window grouping (5 scenarios) |
+| `run.sh` | Restart Cinnamon to pick up code changes (in-VM) |
+| `test/vm-panel-test.sh` | Automated panel zone tests (0-50 windows) |
+| `test/vm-grouping-test.sh` | E2E test for window grouping (5 scenarios) |
+| `test/vm-pinning-test.sh` | E2E test for window pinning (6 scenarios) |
 | `test/smoke-test.sh` | Lightweight crash-detection test (Xephyr-based) |
-| `vm/vm-ctl.sh` | VM lifecycle management (start, stop, ssh, snapshot, revert, viewer) |
-| `vm/create-vm.sh` | Create VM from Ubuntu cloud image with cloud-init provisioning |
-| `vm/clone-vm.sh` | Clone VM from clean-baseline snapshot (qcow2 CoW backing chain) |
+| `vm/vm-ctl.sh` | VM lifecycle management — run from host (start, stop, snapshot, revert) |
 
 ## Commands
 
-- **Run unit tests**: `npm test` (141 tests, Node.js 18+)
+- **Run unit tests**: `npm test` (185 tests, Node.js 18+)
+- **Restart Cinnamon** (pick up code changes): `./run.sh`
+- **Restart + test first**: `./run.sh --test`
+- **Restart + tail log**: `./run.sh --watch`
 - **Install**: `./install.sh` (validates files, creates symlink, warns about stock applet conflict)
 - **Uninstall**: `./uninstall.sh` (removes from dconf + deletes symlink; safe from TTY if Cinnamon crashed)
-- **Restart Cinnamon**: `Alt+F2 → r → Enter` or from TTY: `DISPLAY=:0 cinnamon --replace &`
+- **Manual Cinnamon restart**: `Alt+F2 → r → Enter` or `DISPLAY=:0 cinnamon --replace &>/dev/null &`
 - **Applet dir**: `~/.local/share/cinnamon/applets/multirow-window-list@cinnamon`
 - **dconf key**: `/org/cinnamon/enabled-applets` (list of active applets)
 - **Stock applet UUID**: `window-list@cinnamon.org` (has same `windowattentionhandler` role — only one should be active)
@@ -60,150 +63,124 @@ Cinnamon 6.0.4 desktop applet (forked from stock `window-list@cinnamon.org`) tha
 - **Don't strip CSS margins with inline styles** — previously `on_orientation_changed()` used `set_style('margin-bottom: 0px')` to work around the overflow, but this only applied to buttons that existed at init time. Dynamically added buttons (new windows) retained the CSS margin. The correct fix is to account for margins in the height calculation rather than stripping them.
 - **`_applySavedOrder` must be skipped when grouping is enabled** — the stock window-list saves/restores button order by XID (`lastWindowOrder` in dconf). On Cinnamon restart, `_applySavedOrder()` reorders buttons to match the stale XID list, overriding the grouped insertion done by `_addWindow()`. When `groupWindows` is true, the method returns early so grouped insertion produces the correct order during startup.
 
-## VM Testing (REQUIRED)
+## Development Environment
+
+**Claude Code runs inside the VM** (`cinnamon-dev`). This is the primary development environment.
 
 ### VM Infrastructure
 
-- **VM name**: `cinnamon-dev`
-- **Hypervisor**: libvirt/KVM + QEMU 8.2.2 + SPICE
-- **Disk**: `/var/lib/libvirt/images/cinnamon-dev.qcow2` (qcow2, 40G virtual)
-- **OS**: Ubuntu 24.04.4 LTS + Cinnamon 6.0.4 (matches host)
-- **Session**: `cinnamon2d` (QXL segfaults with compositing; virtio GPU works with cinnamon2d)
-- **Video**: `virtio` model (NOT QXL — QXL crashes X)
+- **VM name**: `cinnamon-dev` (hostname: `cinnamon-dev`)
+- **OS**: Ubuntu 24.04.4 LTS + Cinnamon 6.0.4
+- **Session**: `cinnamon2d` (virtio GPU, NOT QXL which crashes X)
 - **RAM**: 8 GiB, **CPUs**: 4
-- **Login**: steve / dev (SSH key auth configured)
-- **Host mount**: host `~/dev` is mounted **read-write** at `/mnt/host-dev/` via virtio-fs — code changes are instantly visible to the VM
-- **Applet symlink in VM**: `~/.local/share/cinnamon/applets/multirow-window-list@cinnamon` → `/mnt/host-dev/cinnamon-multirow-windowlist`
-- **Snapshot**: `clean-baseline` — working desktop with applet loaded, zero errors
+- **Login**: steve / dev
+- **Host connectivity**: `~/dev` → `/mnt/host-dev/` (virtio-fs, read-write) — code edits are instant
+- **Screenshots to host**: `~/Pictures/host-pictures` → `/mnt/host-pictures/` — save screenshots here to view on host
+- **Applet symlink**: `~/.local/share/cinnamon/applets/multirow-window-list@cinnamon` → `/mnt/host-dev/cinnamon-multirow-windowlist`
+- **`DISPLAY=:0`** is set in the environment — no need to prefix commands
 
-### VM Management Scripts
+### Restarting Cinnamon (picking up code changes)
 
-All scripts are in `vm/`. VM needs `sudo` or `libvirt` group for `virsh`.
+Cinnamon loads applet JS at startup. After editing `applet.js` or `helpers.js`, restart Cinnamon:
 
 ```bash
-./vm/vm-ctl.sh start              # Start VM
-./vm/vm-ctl.sh stop               # Graceful shutdown (SSH + force-off fallback)
-./vm/vm-ctl.sh ssh [cmd]          # SSH into VM (or run a command)
-./vm/vm-ctl.sh viewer             # Open SPICE desktop viewer
-./vm/vm-ctl.sh snapshot <name>    # Create snapshot (auto-shuts down for virtiofs)
-./vm/vm-ctl.sh revert <name>      # Revert to snapshot
-./vm/vm-ctl.sh ip                 # Show VM IP address
-./vm/vm-ctl.sh status             # Show VM state
-./vm/vm-ctl.sh snapshots          # List all snapshots
-./vm/vm-ctl.sh clone <name>       # Clone VM from clean-baseline (CoW)
-./vm/vm-ctl.sh kill               # Force stop
-./vm/vm-ctl.sh destroy            # Delete VM and storage (prompts)
+./run.sh              # Restart Cinnamon, wait for ready, check for errors
+./run.sh --test       # Run npm test first, abort if failing
+./run.sh --watch      # Restart + tail ~/.xsession-errors
 ```
 
-If the session lacks the `libvirt` group, use `sg libvirt -c "virsh ..."`.
+`run.sh` does: install cinnamon-eval.py helper if missing → `setsid cinnamon --replace` → poll D-Bus until responsive → check log for applet errors.
+
+Manual alternative: `Alt+F2 → r → Enter` (interactive) or `setsid cinnamon --replace &>/dev/null &`
 
 ### Required Testing Workflow
 
 After every code change that affects applet behavior:
 
-1. **Unit tests**: `npm test` — must all pass
-2. **Start VM** (if not running): `./vm/vm-ctl.sh start`
-3. **Restart Cinnamon in VM** to pick up code changes:
+1. **Unit tests**: `npm test` — must all pass (or use `./run.sh --test`)
+2. **Restart Cinnamon**: `./run.sh`
+3. **Run automated panel test** with relevant window counts:
    ```bash
-   ./vm/vm-ctl.sh ssh "DISPLAY=:0 cinnamon --replace &>/dev/null &"
+   bash test/vm-panel-test.sh 0 1 10 20    # Specific counts
+   bash test/vm-panel-test.sh              # Full suite: 0, 1, 10, 20, 30, 40, 50
    ```
-4. **Run automated panel test** with relevant window counts:
+4. **Run feature-specific E2E tests**:
    ```bash
-   ./test/vm-panel-test.sh 0 1 10 20    # Specific counts
-   ./test/vm-panel-test.sh              # Full suite: 0, 1, 10, 20, 30, 40, 50
-   ./test/vm-panel-test.sh --revert     # Revert to clean-baseline first
-   ./test/vm-panel-test.sh --right-zone # Test in right zone (shared allocation)
+   bash test/vm-grouping-test.sh           # Window grouping (5 scenarios)
+   bash test/vm-pinning-test.sh            # Window pinning (6 scenarios)
    ```
-5. **Crop and inspect screenshots** — every test run saves screenshots to `test/screenshots/`. Crop the taskbar region (65px height for 60px panel) and visually verify:
-   - Button layout matches expected row count
-   - Icons and labels are positioned correctly
-   - Grouped windows appear adjacent
-   - Zone widths are stable (left/center/right)
-   - No clipping or overflow at high window counts
-
-   Cropping command:
+5. **Crop and inspect screenshots** — every test run saves screenshots to `test/screenshots/`. Crop the taskbar region and visually verify:
    ```bash
-   # Crop taskbar from bottom of screenshot (65px for 60px panel height)
    convert test/screenshots/vm-panel-10win.png -gravity South -crop x65+0+0 +repage /tmp/taskbar-10win.png
    ```
+   Copy to host for viewing: `cp /tmp/taskbar-10win.png ~/Pictures/host-pictures/`
 
 ### How vm-panel-test.sh Works
 
 For each window count (0, 1, 10, 20, 30, 40, 50):
 
-1. Opens N xterm windows via `setsid` (detached from SSH)
+1. Opens N xterm windows via `setsid` (detached)
 2. Waits for panel to settle (3-7s depending on count)
-3. Queries panel state via Cinnamon D-Bus eval (`org.Cinnamon.Eval`) using a Python helper (`/tmp/cinnamon-eval.py`) that pipes JS through stdin
+3. Queries panel state via Cinnamon D-Bus eval (`org.Cinnamon.Eval`) using `/tmp/cinnamon-eval.py`
 4. Runs 11 assertions: min_width == 0, right zone on-screen, zone widths usable, window tracking correct, multi-row engaged, buttons not clipped, no applet errors
 5. Takes full-desktop screenshot to `test/screenshots/vm-panel-{N}win.png`
 6. Closes all test windows, moves to next count
 
 **D-Bus eval pattern** (for ad-hoc Cinnamon introspection):
 ```bash
-# Install the eval helper (vm-panel-test.sh does this automatically)
-./vm/vm-ctl.sh ssh "cat > /tmp/cinnamon-eval.py" << 'EOF'
-#!/usr/bin/env python3
-import subprocess, sys, re
-js = sys.stdin.read().strip()
-result = subprocess.run(
-    ["dbus-send", "--session", "--print-reply", "--dest=org.Cinnamon",
-     "/org/Cinnamon", "org.Cinnamon.Eval", "string:" + js],
-    capture_output=True, text=True)
-output = result.stdout
-match = re.search(r'^\s*string "(.*)"$', output, re.MULTILINE)
-if match:
-    val = match.group(1)
-    if val.startswith('"') and val.endswith('"'):
-        val = val[1:-1]
-    val = val.replace('\\"', '"').replace('\\\\', '\\')
-    print(val)
-    sys.exit(0 if "boolean true" in output else 1)
-else:
-    print("PARSE_ERROR: " + output, file=sys.stderr)
-    sys.exit(1)
-EOF
-
-# Then pipe JS through stdin:
-echo 'Main.panel._rightBox.get_width()' | ./vm/vm-ctl.sh ssh "DISPLAY=:0 python3 /tmp/cinnamon-eval.py"
+# run.sh and test scripts auto-install /tmp/cinnamon-eval.py
+# Pipe JS through stdin:
+echo 'Main.panel._rightBox.get_width()' | python3 /tmp/cinnamon-eval.py
 ```
 
 ### How vm-grouping-test.sh Works
 
-E2E test for window grouping correctness. Runs 5 scenarios (16 assertions) in the VM:
+E2E test for window grouping correctness. Runs 5 scenarios (16 assertions):
 
 1. **Fresh grouping** — interleaved app launches, verifies same-app windows are contiguous
 2. **Grouping survives restart** — verifies grouped order persists across Cinnamon restart
 3. **Three apps** — adds one window per app, verifies each joins its group
 4. **Rapid creation** — race condition test for WindowTracker app ID lookup
-5. **Stale saved order** — scrambles container order via D-Bus, saves to dconf, restarts, verifies grouping is restored (not corrupted by stale XIDs)
+5. **Stale saved order** — scrambles container order via D-Bus, saves to dconf, restarts, verifies grouping is restored
 
 ```bash
-bash test/vm-grouping-test.sh    # Requires VM running, xterm + gedit installed
+bash test/vm-grouping-test.sh
 ```
 
-**Key patterns**:
-- Uses D-Bus `org.Cinnamon.Eval` to query container child order (`get_child_at_index`, `_delegate.metaWindow`)
-- `check_grouping` function validates that windows with the same `.desktop` app ID are contiguous in the container
-- Skips `window:NNN` pseudo-IDs (apps without `.desktop` files, like xclock/xeyes) since they can't be grouped
-- Scrambles order via D-Bus `set_child_at_index` to simulate stale saved order without manual drag
+**Prerequisites**: `sudo apt install -y xterm x11-apps gedit`
 
-**VM prerequisites**: `sudo apt install -y xterm x11-apps gedit` (not in `clean-baseline` snapshot)
+### How vm-pinning-test.sh Works
 
-### Smoke Test (Xephyr-based, no VM needed)
+E2E test for window pinning feature. Runs 6 scenarios (14 assertions):
 
-`test/smoke-test.sh` is a lightweight crash-detection test using Xephyr (nested X display). Verifies the applet doesn't crash Cinnamon or generate excessive errors. Useful for quick sanity checks without spinning up the VM.
+1. **Basic priority ordering** — opens windows in non-priority order, verifies sorted by priority
+2. **Mixed pinned/unpinned** — pinned windows always before unpinned
+3. **Survives Cinnamon restart** — pin order persists across restart
+4. **Title change re-pin** — rename window title to match pin rule, verify it moves
+5. **Drag inhibit** — verify `_draggable.inhibit` is true for pinned windows
+6. **App-only rule** — pin rule without title filter pins all windows of that app
 
 ```bash
-bash test/smoke-test.sh    # Requires: sudo apt install xserver-xephyr
+bash test/vm-pinning-test.sh
 ```
 
-### VM Gotchas
+**Prerequisites**: `sudo apt install -y xterm wmctrl`
 
-- **Restart Cinnamon to pick up code changes**: `./vm/vm-ctl.sh ssh "DISPLAY=:0 cinnamon --replace &>/dev/null &"`
-- **virtiofs prevents live snapshots**: vm-ctl.sh auto-shuts down before snapshotting
-- **QXL crashes X**: use `virtio` video model, `cinnamon2d` session
-- **SSH backgrounding**: use `setsid` to detach processes from SSH session (plain `&` leaves fds open)
+### Gotchas
+
+- **Restart Cinnamon to pick up code changes**: `./run.sh` (or `setsid cinnamon --replace &>/dev/null &`)
+- **QXL crashes X**: VM uses `virtio` video model + `cinnamon2d` session
+- **Process backgrounding**: use `setsid` to fully detach processes (plain `&` may leave fds open)
 - **Screenshots**: `xwd -root | convert xwd:- png:output.png` (gnome-screenshot/scrot produce black with virtio GPU)
-- **virsh shutdown unreliable**: cloud-init VMs may not respond to ACPI shutdown; vm-ctl.sh uses SSH shutdown + force-off fallback
-- **Cinnamon D-Bus eval quoting**: pipe JS through stdin to the Python helper — shell quoting with nested quotes is unreliable
-- **clean-baseline lacks test packages**: `xterm`, `x11-apps`, `gedit` are NOT in the snapshot — install after every revert: `./vm/vm-ctl.sh ssh 'sudo apt install -y xterm x11-apps gedit'`
+- **D-Bus eval quoting**: pipe JS through stdin to `/tmp/cinnamon-eval.py` — shell quoting with nested quotes is unreliable
+- **Test packages not pre-installed**: after clean-baseline revert, run: `sudo apt install -y xterm x11-apps gedit wmctrl`
+- **Host file access**: `~/dev` → `/mnt/host-dev/` (code), `~/Pictures/host-pictures` → `/mnt/host-pictures/` (screenshots)
+- **Snapshot/revert require host access**: `virsh` runs on the hypervisor host, not inside the VM
+
+### VM Management (from host)
+
+The `vm/` scripts are for managing the VM **from the host OS**. Since Claude Code runs inside the VM, these are for the user to run on the host when needed:
+
+```bash
+./vm/vm-ctl.sh start/stop/snapshot/revert/viewer
+```

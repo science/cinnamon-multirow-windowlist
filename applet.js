@@ -63,10 +63,11 @@ const Main = imports.ui.main;
 const PopupMenu = imports.ui.popupMenu;
 const Settings = imports.ui.settings;
 const SignalManager = imports.misc.signalManager;
+const ModalDialog = imports.ui.modalDialog;
 const Tooltips = imports.ui.tooltips;
 const WindowUtils = imports.misc.windowUtils;
 
-const { calcAdaptiveRowCount, calcButtonWidth, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize, calcGroupedInsertionIndex, calcDragInsertionIndex } = require('./helpers');
+const { calcAdaptiveRowCount, calcButtonWidth, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize, calcGroupedInsertionIndex, calcDragInsertionIndex, parsePinRules, matchPinRule, calcPinnedInsertionIndex, calcSortedButtonOrder, buildEditorRules, filterPinRule } = require('./helpers');
 
 const MAX_TEXT_LENGTH = 1000;
 const FLASH_INTERVAL = 500;
@@ -417,7 +418,7 @@ class AppMenuButton {
     onPanelEditModeChanged() {
         let editMode = global.settings.get_boolean("panel-edit-mode");
         if (this._draggable)
-            this._draggable.inhibit = editMode;
+            this._draggable.inhibit = editMode || (this._pinPriority !== null && this._pinPriority !== undefined);
         this.actor.reactive = !editMode;
     }
 
@@ -556,9 +557,17 @@ class AppMenuButton {
         }
 
         this._label.set_text(title);
+
+        if (this._applet._parsedPinRules && this._applet._parsedPinRules.length > 0) {
+            this._applet._onWindowTitleChanged(this);
+        }
     }
 
     destroy() {
+        if (this._pinDebounceTimer) {
+            Mainloop.source_remove(this._pinDebounceTimer);
+            this._pinDebounceTimer = null;
+        }
         if (this._flashTimer) {
             Mainloop.source_remove(this._flashTimer);
             this._flashTimer = null;
@@ -720,6 +729,7 @@ class AppMenuButton {
             let targetRow = Math.floor(
                 this._applet._panelHeight / this._applet._computedRows);
             alloc.natural_size = targetRow - vOverhead - vMargin;
+            alloc.min_size = Math.min(alloc.min_size, alloc.natural_size);
         } else {
             alloc.natural_size = naturalSize1;
         }
@@ -795,7 +805,7 @@ class AppMenuButton {
                 childBox.x1 = box.x1 + iconPad;
                 childBox.x2 = box.x2;
                 childBox.y1 = box.y1 + iconPad;
-                childBox.y2 = childBox.y1 + (maxLines * lineHeight);
+                childBox.y2 = Math.min(childBox.y1 + (maxLines * lineHeight), box.y2);
                 this._label.allocate(childBox, flags);
 
                 // Store indent for paint handler (see constructor).
@@ -1083,6 +1093,33 @@ class AppMenuButtonRightClickMenu extends Applet.AppletPopupMenu {
         this.addMenuItem(item);
         item.setSensitive(mw.can_maximize())
 
+        // Pin/Unpin
+        this.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+        let isPinned = this._launcher._pinPriority !== null && this._launcher._pinPriority !== undefined;
+        if (isPinned) {
+            item = new PopupMenu.PopupMenuItem(_("Unpin this window"));
+            this._signals.connect(item, 'activate', Lang.bind(this, function() {
+                this._launcher._applet._unpinWindow(this._launcher);
+            }));
+        } else {
+            item = new PopupMenu.PopupMenuItem(_("Pin this window"));
+            this._signals.connect(item, 'activate', Lang.bind(this, function() {
+                this._launcher._applet._showPinDialog(this._launcher);
+            }));
+        }
+        this.addMenuItem(item);
+
+        // Edit all pin rules (only if rules exist)
+        if (this._launcher._applet._rawPinRules && this._launcher._applet._rawPinRules.length > 0) {
+            item = new PopupMenu.PopupMenuItem(_("Edit pin rules\u2026"));
+            this._signals.connect(item, 'activate', Lang.bind(this, function() {
+                this._launcher._applet._showPinRulesEditor();
+            }));
+            this.addMenuItem(item);
+        }
+
+        this.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
+
         item = new PopupMenu.PopupIconMenuItem(_("Close"), "edit-delete", St.IconType.SYMBOLIC);
         this._signals.connect(item, 'activate', function() {
             mw.delete(global.get_current_time());
@@ -1182,6 +1219,9 @@ class CinnamonWindowListApplet extends Applet.Applet {
         // Multi-row settings
         this.settings.bind("max-rows", "maxRows", this._onLayoutSettingsChanged);
         this.settings.bind("group-windows", "groupWindows");
+        this.settings.bind("pin-rules", "pinRules", this._onPinRulesChanged);
+        this._parsedPinRules = parsePinRules(this.pinRules || '[]');
+        try { this._rawPinRules = JSON.parse(this.pinRules || '[]'); } catch(e) { this._rawPinRules = []; }
         this.settings.bind("icon-size-override", "iconSizeOverride", this._onAppearanceSettingsChanged);
         this.settings.bind("label-font-size", "labelFontSize", this._onAppearanceSettingsChanged);
         this.settings.bind("label-wrap", "labelWrap", this._onAppearanceSettingsChanged);
@@ -1379,7 +1419,7 @@ class CinnamonWindowListApplet extends Applet.Applet {
             hOverhead = Math.ceil(tn.get_horizontal_padding()
                 + tn.get_border_width(1) + tn.get_border_width(3)
                 + hMargin);
-            vMargin = Math.ceil(tn.get_length('margin-bottom'));
+            vMargin = Math.ceil(tn.get_length('margin-bottom') + tn.get_length('margin-top'));
             vOverhead = tn.get_vertical_padding()
                 + tn.get_border_width(0) + tn.get_border_width(2);
         }
@@ -1416,7 +1456,7 @@ class CinnamonWindowListApplet extends Applet.Applet {
             }
         }
 
-        if (widthChanged || (wasEmpty && visibleCount > 0)) {
+        if (widthChanged || rowsChanged || (wasEmpty && visibleCount > 0)) {
             // Invalidate each button's cached preferred size so they
             // report the new _effectiveButtonWidth on next query.
             for (let window of this._windows) {
@@ -1648,18 +1688,46 @@ class CinnamonWindowListApplet extends Applet.Applet {
 
         let appButton = new AppMenuButton(this, metaWindow, transient);
 
-        if (this.groupWindows) {
-            let tracker = Cinnamon.WindowTracker.get_default();
-            let newApp = tracker.get_window_app(metaWindow);
-            let newAppId = newApp ? newApp.get_id() : null;
+        let tracker = Cinnamon.WindowTracker.get_default();
+        let newApp = tracker.get_window_app(metaWindow);
+        let newAppId = newApp ? newApp.get_id() : null;
+        let title = metaWindow.get_title();
+        let pinRule = matchPinRule(this._parsedPinRules, newAppId, title);
+        appButton._pinPriority = pinRule ? pinRule.priority : null;
+
+        if (appButton._pinPriority !== null) {
+            // Pinned window — insert at correct priority position
+            if (appButton._draggable) {
+                appButton._draggable.inhibit = true;
+            }
+            let children = this.manager_container.get_children();
+            let childInfo = children.map(child => {
+                let btn = child._delegate;
+                return {
+                    pinPriority: (btn && btn._pinPriority !== undefined) ? btn._pinPriority : null,
+                    appId: btn && btn.metaWindow ? (function() { let a = tracker.get_window_app(btn.metaWindow); return a ? a.get_id() : null; })() : null
+                };
+            });
+            let insertIndex = calcPinnedInsertionIndex(childInfo, appButton._pinPriority, newAppId);
+            this.manager_container.insert_child_at_index(appButton.actor, insertIndex);
+        } else if (this.groupWindows) {
             let children = this.manager_container.get_children();
             let existingAppIds = children.map(child => {
                 let btn = child._delegate;
                 if (!btn || !btn.metaWindow) return null;
+                // Skip pinned buttons when finding grouped siblings
+                if (btn._pinPriority !== null && btn._pinPriority !== undefined) return null;
                 let app = tracker.get_window_app(btn.metaWindow);
                 return app ? app.get_id() : null;
             });
             let insertIndex = calcGroupedInsertionIndex(existingAppIds, newAppId);
+            // Clamp so we never insert before the last pinned window
+            let pinnedCount = 0;
+            for (let i = 0; i < children.length; i++) {
+                let btn = children[i]._delegate;
+                if (btn && btn._pinPriority !== null && btn._pinPriority !== undefined) pinnedCount++;
+            }
+            if (insertIndex < pinnedCount) insertIndex = pinnedCount;
             this.manager_container.insert_child_at_index(appButton.actor, insertIndex);
         } else {
             this.manager_container.add_actor(appButton.actor);
@@ -1733,7 +1801,12 @@ class CinnamonWindowListApplet extends Applet.Applet {
             }
         }
 
-        this._saveOrder();
+        // Pinning always wins over saved order
+        if (this._parsedPinRules && this._parsedPinRules.length > 0) {
+            this._applyPinRules();
+        } else {
+            this._saveOrder();
+        }
     }
 
     _saveOrder() {
@@ -1756,6 +1829,243 @@ class CinnamonWindowListApplet extends Applet.Applet {
         this.lastWindowOrder = new_order.join("::");
     }
 
+    _onPinRulesChanged() {
+        this._parsedPinRules = parsePinRules(this.pinRules || '[]');
+        // Keep raw rules for mutation (parsed rules lose 'title' string → 'titleRegex' RegExp)
+        try { this._rawPinRules = JSON.parse(this.pinRules || '[]'); } catch(e) { this._rawPinRules = []; }
+        this._applyPinRules();
+    }
+
+    _applyPinRules() {
+        let tracker = Cinnamon.WindowTracker.get_default();
+        let children = this.manager_container.get_children();
+        let buttons = [];
+        for (let i = 0; i < children.length; i++) {
+            let btn = children[i]._delegate;
+            if (!btn || !btn.metaWindow) continue;
+            let app = tracker.get_window_app(btn.metaWindow);
+            let appId = app ? app.get_id() : null;
+            let title = btn.metaWindow.get_title();
+            let rule = matchPinRule(this._parsedPinRules, appId, title);
+            btn._pinPriority = rule ? rule.priority : null;
+            if (btn._draggable) {
+                btn._draggable.inhibit = btn._pinPriority !== null || global.settings.get_boolean("panel-edit-mode");
+            }
+            buttons.push({
+                pinPriority: btn._pinPriority,
+                appId: appId,
+                title: title || '',
+                originalIndex: i,
+                actor: children[i]
+            });
+        }
+        let newOrder = calcSortedButtonOrder(buttons);
+        for (let i = 0; i < newOrder.length; i++) {
+            this.manager_container.set_child_at_index(buttons[newOrder[i]].actor, i);
+        }
+        this._saveOrder();
+    }
+
+    _nextPinPriority() {
+        let rules = this._parsedPinRules || [];
+        if (rules.length === 0) return 0;
+        let max = 0;
+        for (let i = 0; i < rules.length; i++) {
+            if (rules[i].priority > max) max = rules[i].priority;
+        }
+        return max + 1;
+    }
+
+    _savePinRules(rawArray) {
+        this.pinRules = JSON.stringify(rawArray);
+        // settings.bind callback fires via inotify (async) — unreliable for programmatic writes.
+        // Explicitly sync parsed/raw caches and apply immediately.
+        this._onPinRulesChanged();
+    }
+
+    _addPinRule(appId, titlePattern, priority) {
+        let raw = this._rawPinRules ? this._rawPinRules.slice() : [];
+        raw.push({ appId: appId, title: titlePattern, priority: priority });
+        this._savePinRules(raw);
+    }
+
+    _unpinWindow(button) {
+        let tracker = Cinnamon.WindowTracker.get_default();
+        let app = tracker.get_window_app(button.metaWindow);
+        let appId = app ? app.get_id() : null;
+        let title = button.metaWindow.get_title();
+        let rule = matchPinRule(this._parsedPinRules, appId, title);
+        if (!rule) return;
+        this._savePinRules(filterPinRule(this._rawPinRules, rule.appId, rule.priority));
+    }
+
+    _showPinDialog(button) {
+        let tracker = Cinnamon.WindowTracker.get_default();
+        let app = tracker.get_window_app(button.metaWindow);
+        let appId = app ? app.get_id() : null;
+        let title = button.metaWindow.get_title() || '';
+        let escapedTitle = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        let priority = this._nextPinPriority();
+
+        let dialog = new ModalDialog.ModalDialog();
+
+        // Regex row: / [entry] /
+        let regexLabel = new St.Label({ text: _("Title pattern:") });
+        dialog.contentLayout.add(regexLabel);
+
+        let regexRow = new St.BoxLayout({ vertical: false });
+        let slashLeft = new St.Label({ text: ' / ' });
+        slashLeft.style = 'font-size: 1.2em; font-family: monospace; padding-top: 2px;';
+        regexRow.add(slashLeft);
+        let entry = new St.Entry({ text: escapedTitle, can_focus: true });
+        entry.set_width(350);
+        regexRow.add(entry, { expand: true });
+        let slashRight = new St.Label({ text: ' / ' });
+        slashRight.style = 'font-size: 1.2em; font-family: monospace; padding-top: 2px;';
+        regexRow.add(slashRight);
+        dialog.contentLayout.add(regexRow);
+
+        // Priority row
+        let priorityRow = new St.BoxLayout({ vertical: false });
+        let priorityLabel = new St.Label({ text: _("Priority: ") });
+        priorityLabel.style = 'padding-top: 4px;';
+        priorityRow.add(priorityLabel);
+        let priorityEntry = new St.Entry({ text: priority.toString(), can_focus: true });
+        priorityEntry.set_width(60);
+        priorityRow.add(priorityEntry);
+        dialog.contentLayout.add(priorityRow);
+
+        // Info
+        let infoLabel = new St.Label({ text: _("App: %s").format(appId || 'unknown') });
+        infoLabel.style = 'font-size: 0.9em; color: #888; padding-top: 4px;';
+        dialog.contentLayout.add(infoLabel);
+
+        dialog.setButtons([
+            { label: _("Cancel"), action: () => dialog.destroy(), key: Clutter.KEY_Escape },
+            { label: _("Pin"), action: () => {
+                let p = parseInt(priorityEntry.get_text());
+                if (isNaN(p)) p = priority;
+                this._addPinRule(appId, entry.get_text(), p);
+                dialog.destroy();
+            }, default: true }
+        ]);
+
+        dialog.open();
+        global.stage.set_key_focus(entry.clutter_text);
+    }
+
+    _showPinRulesEditor() {
+        let dialog = new ModalDialog.ModalDialog();
+
+        let titleLabel = new St.Label({ text: _("Pin Rules") });
+        titleLabel.style = 'font-size: 1.2em; font-weight: bold; padding-bottom: 8px;';
+        dialog.contentLayout.add(titleLabel);
+
+        // Header row
+        let header = new St.BoxLayout({ vertical: false, style: 'padding-bottom: 4px;' });
+        let hPri = new St.Label({ text: _("Priority"), style: 'width: 60px; font-weight: bold;' });
+        let hApp = new St.Label({ text: _("App"), style: 'width: 160px; font-weight: bold;' });
+        let hTitle = new St.Label({ text: _("Title Pattern"), style: 'width: 280px; font-weight: bold;' });
+        header.add(hPri); header.add(hApp); header.add(hTitle);
+        dialog.contentLayout.add(header);
+
+        // Scrollable rule rows
+        let scrollView = new St.ScrollView({
+            vscrollbar_policy: St.PolicyType.AUTOMATIC,
+            hscrollbar_policy: St.PolicyType.NEVER
+        });
+        scrollView.set_height(300);
+        let rowContainer = new St.BoxLayout({ vertical: true });
+        scrollView.add_actor(rowContainer);
+        dialog.contentLayout.add(scrollView);
+
+        let rowWidgets = [];
+
+        function addRow(rule) {
+            let row = new St.BoxLayout({ vertical: false, style: 'padding: 2px 0;' });
+
+            let priEntry = new St.Entry({ text: rule.priority.toString(), can_focus: true });
+            priEntry.set_width(50);
+            row.add(priEntry);
+
+            let appLabel = new St.Label({ text: rule.appId || '' });
+            appLabel.style = 'width: 150px; padding: 4px 8px;';
+            row.add(appLabel);
+
+            // / regex /
+            let slash1 = new St.Label({ text: ' /', style: 'font-family: monospace; padding-top: 4px;' });
+            row.add(slash1);
+            let titleEntry = new St.Entry({ text: rule.title || '', can_focus: true });
+            titleEntry.set_width(230);
+            row.add(titleEntry);
+            let slash2 = new St.Label({ text: '/ ', style: 'font-family: monospace; padding-top: 4px;' });
+            row.add(slash2);
+
+            // Delete button
+            let deleteBtn = new St.Button({ can_focus: true, style_class: 'modal-dialog-button' });
+            let deleteIcon = new St.Icon({ icon_name: 'edit-delete', icon_size: 16, icon_type: St.IconType.SYMBOLIC });
+            deleteBtn.set_child(deleteIcon);
+            deleteBtn.connect('clicked', function() {
+                rowContainer.remove_child(row);
+                let idx = rowWidgets.findIndex(w => w.row === row);
+                if (idx >= 0) rowWidgets.splice(idx, 1);
+            });
+            row.add(deleteBtn);
+
+            rowContainer.add(row);
+            rowWidgets.push({ priorityEntry: priEntry, titleEntry: titleEntry, appId: rule.appId, row: row });
+        }
+
+        // Sort raw by priority for display
+        let sorted = this._rawPinRules.slice().sort((a, b) => a.priority - b.priority);
+        for (let i = 0; i < sorted.length; i++) {
+            addRow(sorted[i]);
+        }
+
+        // Empty state
+        if (sorted.length === 0) {
+            let emptyLabel = new St.Label({ text: _("No pin rules. Right-click a window and choose 'Pin this window' to add one.") });
+            emptyLabel.style = 'color: #888; padding: 16px 0;';
+            rowContainer.add(emptyLabel);
+        }
+
+        let self = this;
+        dialog.setButtons([
+            { label: _("Cancel"), action: () => dialog.destroy(), key: Clutter.KEY_Escape },
+            { label: _("Save"), action: () => {
+                let rows = [];
+                for (let i = 0; i < rowWidgets.length; i++) {
+                    let w = rowWidgets[i];
+                    rows.push({ appId: w.appId, title: w.titleEntry.get_text(), priority: w.priorityEntry.get_text() });
+                }
+                self._savePinRules(buildEditorRules(rows));
+                dialog.destroy();
+            }, default: true }
+        ]);
+
+        dialog.open();
+    }
+
+    _onWindowTitleChanged(button) {
+        let tracker = Cinnamon.WindowTracker.get_default();
+        let app = tracker.get_window_app(button.metaWindow);
+        let appId = app ? app.get_id() : null;
+        let title = button.metaWindow.get_title();
+        let rule = matchPinRule(this._parsedPinRules, appId, title);
+        let newPriority = rule ? rule.priority : null;
+        if (newPriority === button._pinPriority) return;
+        // Pin match changed — debounce the re-sort
+        if (button._pinDebounceTimer) {
+            Mainloop.source_remove(button._pinDebounceTimer);
+            button._pinDebounceTimer = null;
+        }
+        button._pinDebounceTimer = Mainloop.timeout_add(300, Lang.bind(this, function() {
+            button._pinDebounceTimer = null;
+            this._applyPinRules();
+            return false;
+        }));
+    }
+
     _updateAllIconGeometry() {
         for (let window of this._windows) {
             window.updateIconGeometry();
@@ -1766,6 +2076,9 @@ class CinnamonWindowListApplet extends Applet.Applet {
         if (this._inEditMode)
             return DND.DragMotionResult.MOVE_DROP;
         if (!(source instanceof AppMenuButton))
+            return DND.DragMotionResult.NO_DROP;
+        // Pinned windows cannot be dragged
+        if (source._pinPriority !== null && source._pinPriority !== undefined)
             return DND.DragMotionResult.NO_DROP;
 
         let children = this.manager_container.get_children();
@@ -1782,6 +2095,14 @@ class CinnamonWindowListApplet extends Applet.Applet {
             });
         }
         this._dragPlaceholderPos = calcDragInsertionIndex(childRects, x, y, false);
+
+        // Clamp drop position past pinned windows
+        let pinnedCount = 0;
+        for (let i = 0; i < children.length; i++) {
+            let btn = children[i]._delegate;
+            if (btn && btn._pinPriority !== null && btn._pinPriority !== undefined) pinnedCount++;
+        }
+        if (this._dragPlaceholderPos < pinnedCount) this._dragPlaceholderPos = pinnedCount;
 
         source.actor.hide();
         if (this._dragPlaceholder == undefined) {
@@ -1802,6 +2123,7 @@ class CinnamonWindowListApplet extends Applet.Applet {
     acceptDrop(source, actor, x, y, time) {
         if (!(source instanceof AppMenuButton)) return false;
         if (this._dragPlaceholderPos == undefined) return false;
+        if (source._pinPriority !== null && source._pinPriority !== undefined) return false;
 
         this.manager_container.set_child_at_index(source.actor, this._dragPlaceholderPos);
 

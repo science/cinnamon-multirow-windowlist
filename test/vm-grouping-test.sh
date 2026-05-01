@@ -26,6 +26,12 @@ VM_CTL="$PROJECT_DIR/vm/vm-ctl.sh"
 SCREENSHOT_DIR="$SCRIPT_DIR/screenshots"
 APPLET_UUID="multirow-window-list@cinnamon"
 
+# --- Local-mode detection ---
+IS_LOCAL=false
+if [[ -f /mnt/host-dev/cinnamon-multirow-windowlist/applet.js ]]; then
+    IS_LOCAL=true
+fi
+
 # --- Colors ---
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -40,7 +46,24 @@ PASSED=0
 FAILED=0
 WARNINGS=0
 
-# --- SSH helpers ---
+# --- Command helpers (dual-mode: local or SSH) ---
+run_cmd() {
+    if $IS_LOCAL; then
+        eval "$@"
+    else
+        vm_ssh "$@"
+    fi
+}
+
+run_display() {
+    if $IS_LOCAL; then
+        DISPLAY=:0 eval "$@"
+    else
+        vm_ssh "DISPLAY=:0 $*"
+    fi
+}
+
+# --- SSH helpers (remote mode only) ---
 VM_IP=""
 get_vm_ip() {
     if [[ -z "$VM_IP" ]]; then
@@ -61,12 +84,8 @@ vm_ssh() {
     ssh $SSH_OPTS "steve@$ip" "$@"
 }
 
-vm_run() {
-    vm_ssh "DISPLAY=:0 $*"
-}
-
 install_eval_helper() {
-    vm_ssh "cat > /tmp/cinnamon-eval.py" << 'EVAL_HELPER'
+    cat > /tmp/cinnamon-eval.py << 'EVAL_HELPER'
 #!/usr/bin/env python3
 """Read JS from stdin, eval via Cinnamon D-Bus, print result."""
 import subprocess, sys, re
@@ -91,10 +110,17 @@ else:
     print("PARSE_ERROR: " + output, file=sys.stderr)
     sys.exit(1)
 EVAL_HELPER
+    if ! $IS_LOCAL; then
+        vm_ssh "cat > /tmp/cinnamon-eval.py" < /tmp/cinnamon-eval.py
+    fi
 }
 
 cinnamon_eval() {
-    echo "$1" | vm_ssh "DISPLAY=:0 python3 /tmp/cinnamon-eval.py"
+    if $IS_LOCAL; then
+        echo "$1" | DISPLAY=:0 python3 /tmp/cinnamon-eval.py
+    else
+        echo "$1" | vm_ssh "DISPLAY=:0 python3 /tmp/cinnamon-eval.py"
+    fi
 }
 
 # --- JSON helpers ---
@@ -205,35 +231,41 @@ open_app_windows() {
     local app="$1"
     local count="$2"
     local title_prefix="${3:-$app}"
-    vm_ssh "cat > /tmp/open-${app}-windows.sh" <<REMOTE_SCRIPT
+    cat > /tmp/open-${app}-windows.sh <<REMOTE_SCRIPT
 #!/bin/bash
 for i in \$(seq 1 $count); do
     setsid $app -title "${title_prefix}-\$i" &>/dev/null &
     sleep 0.2
 done
 REMOTE_SCRIPT
-    vm_run "bash /tmp/open-${app}-windows.sh"
+    if ! $IS_LOCAL; then
+        vm_ssh "cat > /tmp/open-${app}-windows.sh" < /tmp/open-${app}-windows.sh
+    fi
+    run_display "bash /tmp/open-${app}-windows.sh"
 }
 
 # Open xterm windows with a specific title prefix
 open_xterms() {
     local count="$1"
     local prefix="${2:-XtermGroup}"
-    vm_ssh "cat > /tmp/open-xterms.sh" <<REMOTE_SCRIPT
+    cat > /tmp/open-xterms.sh <<REMOTE_SCRIPT
 #!/bin/bash
 for i in \$(seq 1 $count); do
     setsid xterm -title "${prefix}-\$i" -e "sleep 600" &>/dev/null &
     sleep 0.2
 done
 REMOTE_SCRIPT
-    vm_run "bash /tmp/open-xterms.sh"
+    if ! $IS_LOCAL; then
+        vm_ssh "cat > /tmp/open-xterms.sh" < /tmp/open-xterms.sh
+    fi
+    run_display "bash /tmp/open-xterms.sh"
 }
 
 # Open xclock windows
 open_xclocks() {
     local count="$1"
     for i in $(seq 1 "$count"); do
-        vm_run "setsid xclock -title XClock-$i &>/dev/null &"
+        run_display "setsid xclock -title XClock-$i &>/dev/null &"
         sleep 0.2
     done
 }
@@ -242,13 +274,13 @@ open_xclocks() {
 open_xeyes() {
     local count="$1"
     for i in $(seq 1 "$count"); do
-        vm_run "setsid xeyes -title XEyes-$i &>/dev/null &"
+        run_display "setsid xeyes -title XEyes-$i &>/dev/null &"
         sleep 0.2
     done
 }
 
 close_all_test_windows() {
-    vm_ssh "pkill -f 'sleep 600' 2>/dev/null; pkill xclock 2>/dev/null; pkill xeyes 2>/dev/null; pkill xterm 2>/dev/null; pkill gedit 2>/dev/null" || true
+    run_cmd "pkill -f 'sleep 600' 2>/dev/null; pkill xclock 2>/dev/null; pkill xeyes 2>/dev/null; pkill xterm 2>/dev/null; pkill gedit 2>/dev/null" || true
     sleep 1
 }
 
@@ -256,8 +288,12 @@ close_all_test_windows() {
 screenshot() {
     local label="${1:-grouping}"
     mkdir -p "$SCREENSHOT_DIR"
-    vm_run "xwd -root -silent" > /tmp/vm-screenshot.xwd 2>/dev/null
-    convert xwd:/tmp/vm-screenshot.xwd "$SCREENSHOT_DIR/vm-grouping-${label}.png" 2>/dev/null || true
+    if $IS_LOCAL; then
+        DISPLAY=:0 xwd -root -silent 2>/dev/null | convert xwd:- "$SCREENSHOT_DIR/vm-grouping-${label}.png" 2>/dev/null || true
+    else
+        vm_ssh "DISPLAY=:0 xwd -root -silent" > /tmp/vm-screenshot.xwd 2>/dev/null
+        convert xwd:/tmp/vm-screenshot.xwd "$SCREENSHOT_DIR/vm-grouping-${label}.png" 2>/dev/null || true
+    fi
 }
 
 # ============================================================
@@ -278,41 +314,49 @@ echo -e "${BOLD}═════════════════════�
 echo
 
 if $DO_REVERT; then
-    echo -e "${CYAN}Reverting to clean-baseline...${NC}"
-    "$VM_CTL" revert clean-baseline 2>&1 | head -2
-    "$VM_CTL" start 2>&1 | head -1 || true
-    echo "Waiting for VM boot..."
-    for i in $(seq 1 30); do
-        if vm_ssh "echo ok" 2>/dev/null | grep -q ok; then break; fi
-        sleep 2
-    done
+    if $IS_LOCAL; then
+        echo -e "${YELLOW}WARNING: --revert requires host access to virsh. Skipping.${NC}"
+    else
+        echo -e "${CYAN}Reverting to clean-baseline...${NC}"
+        "$VM_CTL" revert clean-baseline 2>&1 | head -2
+        "$VM_CTL" start 2>&1 | head -1 || true
+        echo "Waiting for VM boot..."
+        for i in $(seq 1 30); do
+            if vm_ssh "echo ok" 2>/dev/null | grep -q ok; then break; fi
+            sleep 2
+        done
+    fi
 fi
 
 echo -e "${BOLD}Pre-flight checks${NC}"
 
-# VM running?
-if "$VM_CTL" status 2>/dev/null | grep -q running; then
-    test_result "VM is running" "pass"
+if $IS_LOCAL; then
+    test_result "Local mode (in-VM)" "pass"
 else
-    echo -e "  ${RED}FATAL: VM not running${NC}"
-    exit 1
-fi
+    # VM running?
+    if "$VM_CTL" status 2>/dev/null | grep -q running; then
+        test_result "VM is running" "pass"
+    else
+        echo -e "  ${RED}FATAL: VM not running${NC}"
+        exit 1
+    fi
 
-# SSH works?
-if vm_ssh "echo ok" 2>/dev/null | grep -q ok; then
-    test_result "SSH to VM" "pass"
-else
-    echo -e "  ${RED}FATAL: SSH failed${NC}"
-    exit 1
+    # SSH works?
+    if vm_ssh "echo ok" 2>/dev/null | grep -q ok; then
+        test_result "SSH to VM" "pass"
+    else
+        echo -e "  ${RED}FATAL: SSH failed${NC}"
+        exit 1
+    fi
 fi
 
 # Required tools
 for tool in xterm xclock xeyes; do
-    if vm_ssh "which $tool" &>/dev/null; then
+    if run_cmd "which $tool" &>/dev/null; then
         test_result "$tool available" "pass"
     else
-        echo -e "  ${RED}FATAL: $tool not installed in VM${NC}"
-        echo "  Install: $VM_CTL ssh 'sudo apt install -y xterm x11-apps'"
+        echo -e "  ${RED}FATAL: $tool not installed${NC}"
+        echo "  Install: sudo apt install -y xterm x11-apps"
         exit 1
     fi
 done
@@ -430,7 +474,7 @@ for i, e in enumerate(order):
 
 # Restart Cinnamon
 echo -e "  ${CYAN}Restarting Cinnamon...${NC}"
-vm_ssh "DISPLAY=:0 cinnamon --replace &>/dev/null &"
+run_display "cinnamon --replace &>/dev/null &"
 sleep 6
 
 order_post_restart=$(get_child_order)
@@ -553,7 +597,7 @@ echo -e "${BOLD}Scenario 4: Rapid window creation (app tracker race)${NC}"
 echo -e "  ${CYAN}Rapidly opening 5 xterm, 5 xclock, then 3 xterm...${NC}"
 
 # Open rapidly (minimal delay)
-vm_ssh "cat > /tmp/rapid-open.sh" << 'REMOTE_SCRIPT'
+cat > /tmp/rapid-open.sh << 'REMOTE_SCRIPT'
 #!/bin/bash
 for i in $(seq 1 5); do
     setsid xterm -title "RapidA-$i" -e "sleep 600" &>/dev/null &
@@ -567,7 +611,10 @@ for i in $(seq 1 3); do
     setsid xterm -title "RapidA-late-$i" -e "sleep 600" &>/dev/null &
 done
 REMOTE_SCRIPT
-vm_run "bash /tmp/rapid-open.sh"
+if ! $IS_LOCAL; then
+    vm_ssh "cat > /tmp/rapid-open.sh" < /tmp/rapid-open.sh
+fi
+run_display "bash /tmp/rapid-open.sh"
 sleep 4
 
 order=$(get_child_order)
@@ -616,7 +663,7 @@ echo -e "  ${CYAN}Opening 3 xterm, 3 gedit (both have .desktop IDs)...${NC}"
 open_xterms 3 "StaleA"
 sleep 2
 for i in 1 2 3; do
-    vm_run "setsid gedit --new-window &>/dev/null &"
+    run_display "setsid gedit --new-window &>/dev/null &"
     sleep 0.5
 done
 sleep 3
@@ -700,7 +747,7 @@ fi
 
 # Restart Cinnamon — _applySavedOrder will restore the scrambled order
 echo -e "  ${CYAN}Restarting Cinnamon (will restore stale saved order)...${NC}"
-vm_ssh "DISPLAY=:0 cinnamon --replace &>/dev/null &"
+run_display "cinnamon --replace &>/dev/null &"
 sleep 6
 
 order_post=$(get_child_order)
@@ -756,7 +803,7 @@ fi
 
 screenshot "s5-stale-order"
 close_all_test_windows
-vm_ssh "pkill gedit" 2>/dev/null || true
+run_cmd "pkill gedit" 2>/dev/null || true
 sleep 1
 echo
 

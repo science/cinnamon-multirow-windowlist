@@ -91,6 +91,24 @@ bash test/vm-grouping-test.sh       # Window grouping (5 scenarios)
 
 Requires the `cinnamon-dev` VM — see `CLAUDE.md` for VM setup details.
 
+## Known Issues
+
+### Pin rules don't survive restarts for some apps (e.g. Sublime Text)
+
+Pin rules are keyed on the app id returned by Cinnamon's `WindowTracker.get_window_app(metaWindow).get_id()`. For most apps this is the basename of a `.desktop` file (e.g. `firefox.desktop`) and is stable across sessions.
+
+Cinnamon identifies a window's app via two strategies:
+1. PID lookup: resolve `/proc/<pid>/exe` and match against `Exec=` in any installed `.desktop` file.
+2. WM_CLASS lookup: match the window's `WM_CLASS` against `StartupWMClass=` in any installed `.desktop` file.
+
+If both fail, Cinnamon synthesizes a transient app with id `window:<sequence>` where the sequence number increments per session. Pin rules saved against `window:25` will not match `window:7` after the next restart.
+
+**Apps known to hit this:** Sublime Text snap (running binary path differs from the wrapper script in `Exec=`, and no `StartupWMClass=` line in the `.desktop` file). Other apps with sloppy `.desktop` packaging may be affected similarly — Discord, Spotify, Element, and various Electron apps are common offenders.
+
+**Workaround per app:** drop a user-level override at `~/.local/share/applications/<app>.desktop` that adds a `StartupWMClass=<class>` line matching the window's `WM_CLASS` (run `xprop WM_CLASS` and click the window to find the class). User overrides take precedence over `/usr/share/applications/` and `/var/lib/snapd/desktop/applications/`, and survive package updates.
+
+**Deeper fix (not yet implemented):** the applet could detect the `window:\d+` synthetic-id pattern and fall back to a stable `wmclass:<WM_CLASS>` key for pin matching. This would handle every misbehaving app at once instead of one `.desktop` override at a time, at the cost of the rare risk of two unrelated apps sharing a WM_CLASS. Revisit if the per-app workaround becomes painful.
+
 ## License
 
 Based on the stock Cinnamon window-list applet (GPL-2.0).
