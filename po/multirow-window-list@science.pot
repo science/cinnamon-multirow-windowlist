@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: multirow-window-list@science 1.0.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-07 21:35-0700\n"
+"POT-Creation-Date: 2026-07-07 21:38-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,130 +17,130 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: applet.js:974
+#: applet.js:989
 msgid "Move to the other monitor"
 msgstr ""
 
-#: applet.js:984
+#: applet.js:999
 #, javascript-format
 msgid "Move to monitor %d"
 msgstr ""
 
-#: applet.js:995
+#: applet.js:1010
 msgid "Only on this workspace"
 msgstr ""
 
-#: applet.js:1001
+#: applet.js:1016
 msgid "Visible on all workspaces"
 msgstr ""
 
-#: applet.js:1007
+#: applet.js:1022
 msgid "Move to another workspace"
 msgstr ""
 
-#: applet.js:1030
+#: applet.js:1045
 msgid "Applet preferences"
 msgstr ""
 
-#: applet.js:1033
+#: applet.js:1048
 msgid "About..."
 msgstr ""
 
-#: applet.js:1037
+#: applet.js:1052
 msgid "Configure..."
 msgstr ""
 
-#: applet.js:1041
+#: applet.js:1056
 msgid "Remove 'Window list'"
 msgstr ""
 
-#: applet.js:1048
+#: applet.js:1063
 msgid "Close all"
 msgstr ""
 
-#: applet.js:1057
+#: applet.js:1072
 msgid "Close others"
 msgstr ""
 
-#: applet.js:1071
+#: applet.js:1086
 msgid "Restore to full opacity"
 msgstr ""
 
-#: applet.js:1079
+#: applet.js:1094
 msgid "Restore"
 msgstr ""
 
-#: applet.js:1084
+#: applet.js:1099
 msgid "Minimize"
 msgstr ""
 
-#: applet.js:1092
+#: applet.js:1107
 msgid "Unmaximize"
 msgstr ""
 
-#: applet.js:1097
+#: applet.js:1112
 msgid "Maximize"
 msgstr ""
 
-#: applet.js:1109
+#: applet.js:1124
 msgid "Unpin this window"
 msgstr ""
 
-#: applet.js:1114
+#: applet.js:1129
 msgid "Pin this window"
 msgstr ""
 
-#: applet.js:1123
+#: applet.js:1138
 msgid "Edit pin rules…"
 msgstr ""
 
-#: applet.js:1132
+#: applet.js:1147
 msgid "Close"
 msgstr ""
 
-#: applet.js:1922
+#: applet.js:1937
 msgid "Title pattern:"
 msgstr ""
 
-#: applet.js:1939
+#: applet.js:1954
 msgid "Priority: "
 msgstr ""
 
-#: applet.js:1948
+#: applet.js:1963
 #, javascript-format
 msgid "App: %s"
 msgstr ""
 
-#: applet.js:1953 applet.js:2043
+#: applet.js:1968 applet.js:2058
 msgid "Cancel"
 msgstr ""
 
-#: applet.js:1954
+#: applet.js:1969
 msgid "Pin"
 msgstr ""
 
-#: applet.js:1969
+#: applet.js:1984
 msgid "Pin Rules"
 msgstr ""
 
-#: applet.js:1975
+#: applet.js:1990
 msgid "Priority"
 msgstr ""
 
-#: applet.js:1976
+#: applet.js:1991
 msgid "App"
 msgstr ""
 
-#: applet.js:1977
+#: applet.js:1992
 msgid "Title Pattern"
 msgstr ""
 
-#: applet.js:2036
+#: applet.js:2051
 msgid ""
 "No pin rules. Right-click a window and choose 'Pin this window' to add one."
 msgstr ""
 
-#: applet.js:2044
+#: applet.js:2059
 msgid "Save"
 msgstr ""
 

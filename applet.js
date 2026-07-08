@@ -78,6 +78,21 @@ const WindowUtils = imports.misc.windowUtils;
 
 const { calcAdaptiveRowCount, calcButtonWidth, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize, calcGroupedInsertionIndex, calcDragInsertionIndex, parsePinRules, matchPinRule, calcPinnedInsertionIndex, calcSortedButtonOrder, buildEditorRules, filterPinRule } = require('./helpers');
 
+const Gettext = imports.gettext;
+const UUID = "multirow-window-list@science";
+
+Gettext.bindtextdomain(UUID, GLib.get_home_dir() + "/.local/share/locale");
+
+// Look up strings in this applet's domain first, then fall back to Cinnamon's
+// global domain, which already carries translations for the strings inherited
+// from the stock window-list applet.
+function _(text) {
+    let translated = Gettext.dgettext(UUID, text);
+    if (translated !== text)
+        return translated;
+    return window._(text);
+}
+
 const MAX_TEXT_LENGTH = 1000;
 const FLASH_INTERVAL = 500;
 const FLASH_MAX_COUNT = 4;
