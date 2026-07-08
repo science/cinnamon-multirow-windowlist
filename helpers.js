@@ -301,6 +301,30 @@ function filterPinRule(rawRules, appId, priority) {
     });
 }
 
+/**
+ * Calculate where to move an existing button whose app id resolved after it
+ * was added (WindowTracker PID/WM_CLASS lookup race): after the last same-app
+ * sibling. Returns the target index for Clutter's set_child_at_index, whose
+ * semantics are remove-self-then-insert, so a sibling found before selfIndex
+ * yields sibling+1 while one found after yields the sibling's own index.
+ *
+ * @param {Array<string|null>} appIds - App id per container child, null for
+ *   pinned or unresolved entries (excluded as grouping siblings)
+ * @param {number} selfIndex - Current index of the button being moved
+ * @param {string|null} appId - The button's newly resolved app id
+ * @returns {number} Target child index; equals selfIndex when no move is needed
+ */
+function calcRegroupTargetIndex(appIds, selfIndex, appId) {
+    if (!appId) return selfIndex;
+    for (let i = appIds.length - 1; i >= 0; i--) {
+        if (i === selfIndex) continue;
+        if (appIds[i] === appId) {
+            return i < selfIndex ? i + 1 : i;
+        }
+    }
+    return selfIndex;
+}
+
 // Export for Node.js testing; ignored in GJS runtime
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
@@ -308,6 +332,6 @@ if (typeof module !== 'undefined' && module.exports) {
         calcAdaptiveRowCount, calcButtonWidth, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize,
         calcGroupedInsertionIndex, calcDragInsertionIndex,
         parsePinRules, matchPinRule, calcPinnedInsertionIndex, calcSortedButtonOrder,
-        buildEditorRules, filterPinRule
+        buildEditorRules, filterPinRule, calcRegroupTargetIndex
     };
 }

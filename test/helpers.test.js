@@ -5,7 +5,7 @@ const {
     calcAdaptiveRowCount, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize,
     calcButtonWidth, calcGroupedInsertionIndex, calcDragInsertionIndex,
     parsePinRules, matchPinRule, calcPinnedInsertionIndex, calcSortedButtonOrder,
-    buildEditorRules, filterPinRule
+    buildEditorRules, filterPinRule, calcRegroupTargetIndex
 } = require('../helpers');
 
 describe('calcRowHeight', () => {
@@ -265,6 +265,48 @@ describe('calcGroupedInsertionIndex', () => {
 
     it('handles null entries in existing list', () => {
         assert.equal(calcGroupedInsertionIndex(['firefox', null, 'firefox'], 'firefox'), 3);
+    });
+});
+
+describe('calcRegroupTargetIndex', () => {
+    // Used when a window's app id resolves AFTER its button was added
+    // (WindowTracker PID/WM_CLASS lookup race): move the existing button
+    // to sit after the last same-app sibling. Indices follow Clutter
+    // set_child_at_index semantics (remove self, then insert).
+
+    it('stays put when appId is null', () => {
+        assert.equal(calcRegroupTargetIndex(['a', 'b', null], 2, null), 2);
+    });
+
+    it('stays put when there are no same-app siblings', () => {
+        assert.equal(calcRegroupTargetIndex(['a', 'b', 'c'], 2, 'c'), 2);
+    });
+
+    it('moves up next to a sibling earlier in the list', () => {
+        // xterm at 0, others between, self at 3 -> insert right after index 0
+        assert.equal(calcRegroupTargetIndex(['xterm', 'gedit', 'xeyes', 'xterm'], 3, 'xterm'), 1);
+    });
+
+    it('moves after the LAST earlier sibling', () => {
+        assert.equal(calcRegroupTargetIndex(['xterm', 'xterm', 'gedit', 'xterm'], 3, 'xterm'), 2);
+    });
+
+    it('accounts for removal shift when sibling is after self', () => {
+        // self at 0, sibling at 2: after removing self the sibling is at 1,
+        // inserting at 2 puts us right after it
+        assert.equal(calcRegroupTargetIndex(['xterm', 'gedit', 'xterm'], 0, 'xterm'), 2);
+    });
+
+    it('is a no-op when already adjacent after the last sibling', () => {
+        assert.equal(calcRegroupTargetIndex(['gedit', 'xterm', 'xterm'], 2, 'xterm'), 2);
+    });
+
+    it('ignores its own slot when scanning for siblings', () => {
+        assert.equal(calcRegroupTargetIndex(['gedit', 'xterm'], 1, 'xterm'), 1);
+    });
+
+    it('skips null (pinned/unresolved) entries as siblings', () => {
+        assert.equal(calcRegroupTargetIndex([null, 'gedit', 'xterm'], 2, 'xterm'), 2);
     });
 });
 

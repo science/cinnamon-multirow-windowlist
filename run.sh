@@ -44,9 +44,11 @@ if $RUN_TESTS; then
 fi
 
 # --- Verify we're in the VM ---
-if [[ "$(hostname)" != "cinnamon-dev" ]]; then
-    echo -e "${RED}ERROR: Not running inside cinnamon-dev VM${NC}"
-    echo "This script must be run from inside the VM."
+# Guard against restarting Cinnamon on the host by accident. Accepts the
+# legacy libvirt VM (cinnamon-dev) and Incus dev VMs (dev-1, dev-2, ...).
+if [[ "$(hostname)" != "cinnamon-dev" ]] && [[ "$(hostname)" != dev-* ]]; then
+    echo -e "${RED}ERROR: Not running inside a dev VM${NC}"
+    echo "This script must be run from inside the VM (cinnamon-dev or dev-*)."
     exit 1
 fi
 

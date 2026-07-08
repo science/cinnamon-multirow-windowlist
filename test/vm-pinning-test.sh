@@ -28,7 +28,7 @@ CONFIG_DIR="$HOME/.config/cinnamon/spices/$APPLET_UUID"
 
 # --- Local-mode detection ---
 IS_LOCAL=false
-if [[ -f /mnt/host-dev/cinnamon-multirow-windowlist/applet.js ]]; then
+if [[ -f /mnt/host-dev/cinnamon-multirow-windowlist/applet.js ]] || [[ "$(hostname)" == dev-* ]]; then
     IS_LOCAL=true
 fi
 
@@ -216,7 +216,7 @@ print(json.dumps(result))
 
 # --- Window helpers ---
 kill_test_windows() {
-    run_display "wmctrl -l | grep -E 'PIN-TEST' | awk '{print \$1}' | xargs -r -I{} wmctrl -ic {}" 2>/dev/null || true
+    run_display "wmctrl -l | grep -E 'PIN-TEST|PINNED-NOW' | awk '{print \$1}' | xargs -r -I{} wmctrl -ic {}" 2>/dev/null || true
     sleep 1
 }
 
@@ -231,8 +231,20 @@ find_config_file() {
 }
 
 # --- Set pin rules via config file ---
+# Scenario rules are written with the generic "xterm.desktop" app id; swap in
+# the id this environment's WindowTracker actually resolves (Ubuntu ships
+# debian-xterm.desktop).
+XTERM_APP_ID=""
+resolve_xterm_app_id() {
+    XTERM_APP_ID="xterm.desktop"
+    if run_cmd "test -f /usr/share/applications/debian-xterm.desktop" 2>/dev/null; then
+        XTERM_APP_ID="debian-xterm.desktop"
+    fi
+    echo -e "  xterm app id: $XTERM_APP_ID"
+}
+
 set_pin_rules() {
-    local rules_json="$1"
+    local rules_json="${1//xterm.desktop/$XTERM_APP_ID}"
     local config
     config=$(find_config_file)
     if [[ -z "$config" ]]; then
@@ -295,22 +307,41 @@ echo -e "${CYAN}Installing test prerequisites...${NC}"
 run_cmd "which xterm &>/dev/null || sudo apt install -y xterm" &>/dev/null
 run_cmd "which wmctrl &>/dev/null || sudo apt install -y wmctrl" &>/dev/null
 
+resolve_xterm_app_id
+
 # Clean up any leftover test windows
 kill_test_windows
 
-# Ensure grouping is disabled for cleaner pin testing
-# Disable grouping for cleaner pin testing
+# Disable grouping for cleaner pin testing; remember the original value so
+# cleanup can restore it.
+SAVED_GROUP_WINDOWS=""
 config_file=$(find_config_file)
 if [[ -n "$config_file" ]]; then
-    python3 -c "
+    SAVED_GROUP_WINDOWS=$(python3 -c "
 import sys, json
 with open(sys.argv[1]) as f:
     data = json.load(f)
+print(data['group-windows']['value'])
 data['group-windows']['value'] = False
 with open(sys.argv[1], 'w') as f:
     json.dump(data, f, indent=4)
-" "$config_file"
+" "$config_file")
 fi
+
+restore_group_windows() {
+    local config
+    config=$(find_config_file)
+    if [[ -n "$config" && "$SAVED_GROUP_WINDOWS" == "True" ]]; then
+        python3 -c "
+import sys, json
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+data['group-windows']['value'] = True
+with open(sys.argv[1], 'w') as f:
+    json.dump(data, f, indent=4)
+" "$config"
+    fi
+}
 
 mkdir -p "$SCREENSHOT_DIR"
 
@@ -562,6 +593,7 @@ kill_test_windows
 # ============================================================
 echo -e "\n${CYAN}Cleaning up...${NC}"
 clear_pin_rules
+restore_group_windows
 kill_test_windows
 
 # Take final screenshot

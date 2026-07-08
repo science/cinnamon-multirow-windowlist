@@ -76,7 +76,7 @@ const ModalDialog = imports.ui.modalDialog;
 const Tooltips = imports.ui.tooltips;
 const WindowUtils = imports.misc.windowUtils;
 
-const { calcAdaptiveRowCount, calcButtonWidth, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize, calcGroupedInsertionIndex, calcDragInsertionIndex, parsePinRules, matchPinRule, calcPinnedInsertionIndex, calcSortedButtonOrder, buildEditorRules, filterPinRule } = require('./helpers');
+const { calcAdaptiveRowCount, calcButtonWidth, calcLayoutMode, calcAdaptiveFontSize, calcAdaptiveIconSize, calcGroupedInsertionIndex, calcDragInsertionIndex, parsePinRules, matchPinRule, calcPinnedInsertionIndex, calcSortedButtonOrder, buildEditorRules, filterPinRule, calcRegroupTargetIndex } = require('./helpers');
 
 const Gettext = imports.gettext;
 const UUID = "multirow-window-list@science";
@@ -1558,6 +1558,38 @@ class CinnamonWindowListApplet extends Applet.Applet {
 
     _onWindowAppChanged(tracker, metaWindow) {
         this._refreshItemByMetaWindow(metaWindow);
+
+        // The tracker often resolves a window's app only after _addWindow ran
+        // (PID/WM_CLASS lookup race), so the button was appended at the end
+        // instead of joining its group. Re-run pin matching (rules key on the
+        // app id) and move the button next to its same-app siblings.
+        let window = this._windows.find(win => win.metaWindow == metaWindow);
+        if (!window) return;
+
+        this._onWindowTitleChanged(window);
+
+        if (!this.groupWindows) return;
+        if (window._pinPriority !== null && window._pinPriority !== undefined) return;
+
+        let children = this.manager_container.get_children();
+        let selfIndex = children.indexOf(window.actor);
+        if (selfIndex < 0) return;
+
+        let app = tracker.get_window_app(metaWindow);
+        let appId = app ? app.get_id() : null;
+        let appIds = children.map(child => {
+            let btn = child._delegate;
+            if (!btn || !btn.metaWindow) return null;
+            if (btn._pinPriority !== null && btn._pinPriority !== undefined) return null;
+            let a = tracker.get_window_app(btn.metaWindow);
+            return a ? a.get_id() : null;
+        });
+
+        let target = calcRegroupTargetIndex(appIds, selfIndex, appId);
+        if (target !== selfIndex) {
+            this.manager_container.set_child_at_index(window.actor, target);
+            this._saveOrder();
+        }
     }
 
     _onWindowSkipTaskbarChanged(display, metaWindow) {

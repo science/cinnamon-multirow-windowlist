@@ -42,7 +42,7 @@ APPLET_UUID="multirow-window-list@science"
 # --- Local-mode detection ---
 # When running inside the VM (virtio-fs mount visible), skip SSH wrappers.
 IS_LOCAL=false
-if [[ -f /mnt/host-dev/cinnamon-multirow-windowlist/applet.js ]]; then
+if [[ -f /mnt/host-dev/cinnamon-multirow-windowlist/applet.js ]] || [[ "$(hostname)" == dev-* ]]; then
     IS_LOCAL=true
 fi
 
