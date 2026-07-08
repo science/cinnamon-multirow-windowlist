@@ -1,7 +1,7 @@
 {
   "name": "cinnamon-multirow-windowlist",
   "version": "1.0.0",
-  "description": "",
+  "description": "Multi-row window list applet for Cinnamon desktop",
   "main": "applet.js",
   "directories": {
     "test": "test"
@@ -10,6 +10,6 @@
     "test": "node --test test/*.test.js"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC"
+  "author": "Steve Midgley",
+  "license": "GPL-2.0-or-later"
 }

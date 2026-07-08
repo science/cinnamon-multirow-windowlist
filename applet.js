@@ -1,3 +1,12 @@
+// Multi-Row Window List — Cinnamon applet
+// Copyright (C) 2026 Steve Midgley
+// Forked from window-list@cinnamon.org, Copyright (C) the Linux Mint team
+//
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 /* Window-list applet
  *
  * The applet code consists of four main object. WindowPreview, AppMenuButton,
@@ -1200,7 +1209,7 @@ class CinnamonWindowListApplet extends Applet.Applet {
         this._windows = [];
         this._monitorWatchList = [];
 
-        this.settings = new Settings.AppletSettings(this, "multirow-window-list@cinnamon", this.instance_id);
+        this.settings = new Settings.AppletSettings(this, "multirow-window-list@science", this.instance_id);
 
         this.settings.bind("show-all-workspaces", "showAllWorkspaces");
         this.settings.bind("enable-alerts", "enableAlerts", this._updateAttentionGrabber);

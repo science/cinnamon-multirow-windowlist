@@ -1,3 +1,12 @@
+// Multi-Row Window List — Cinnamon applet
+// Copyright (C) 2026 Steve Midgley
+// Forked from window-list@cinnamon.org, Copyright (C) the Linux Mint team
+//
+// This program is free software; you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation; either version 2 of the License, or
+// (at your option) any later version. See the LICENSE file for details.
+
 /**
  * Pure computation helpers for multi-row window list sizing.
  * No Cinnamon/GJS dependencies — testable in Node.js.
