@@ -1,7 +1,7 @@
 {
  "uuid": "multirow-window-list@science",
  "name": "Multi-Row Window List",
- "description": "Window list applet that wraps buttons into multiple rows when the panel is tall enough",
+ "description": "Window list that wraps buttons into multiple rows on tall panels, so many open windows keep readable titles instead of shrinking into one crowded row",
  "version": "1.0.0",
  "role": "windowattentionhandler",
  "max-instances": -1

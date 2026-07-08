@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: multirow-window-list@science 1.0.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-07 22:10-0700\n"
+"POT-Creation-Date: 2026-07-07 22:16-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -150,8 +150,8 @@ msgstr ""
 
 #. metadata.json->description
 msgid ""
-"Window list applet that wraps buttons into multiple rows when the panel is "
-"tall enough"
+"Window list that wraps buttons into multiple rows on tall panels, so many "
+"open windows keep readable titles instead of shrinking into one crowded row"
 msgstr ""
 
 #. settings-schema.json->section1->description

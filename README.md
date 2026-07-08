@@ -6,6 +6,14 @@ Forked from the stock `window-list@cinnamon.org`.
 
 Tested on Cinnamon 6.0.4 (Ubuntu 24.04) — full E2E suite in a VM matching the target environment, plus daily use on a live desktop.
 
+## Why?
+
+If you keep a lot of windows open — a dozen terminals, a few browsers, editors, chats — the stock window list crushes them all into one row. Past ten or so windows the buttons become unreadable slivers, and telling one terminal from another means hovering each button and waiting for a preview.
+
+The obvious answer is to give the panel more height and stack the buttons. A 60px panel with two rows shows twice as many windows at full button width, with titles you can actually read at a glance. But the stock window list never wraps: on a tall panel it just draws taller one-row buttons, and the extra space is wasted. Requests to add multi-row support to Cinnamon's own window list have been declined ([#5002](https://github.com/linuxmint/Cinnamon/issues/5002), [#9746](https://github.com/linuxmint/cinnamon/issues/9746)), so it has to come from an applet.
+
+This applet is that: the stock window list, with rows.
+
 ## What It Does
 
 - **Multi-row wrapping**: window buttons flow into 2, 3, or 4 rows as windows pile up, using `Clutter.FlowLayout`
