@@ -95,7 +95,7 @@ bash test/vm-grouping-test.sh       # Window grouping (5 scenarios)
 bash test/vm-pinning-test.sh        # Window pinning (6 scenarios)
 ```
 
-Requires the `cinnamon-dev` VM — see `CLAUDE.md` for VM setup details.
+Run them from inside a dev VM with a Cinnamon desktop (hostname `dev-*` or `cinnamon-dev`) — see `CLAUDE.md` for details.
 
 ## Known Issues
 

@@ -2,7 +2,7 @@
 
 ## Project
 
-Cinnamon 6.0.4 desktop applet (forked from stock `window-list@cinnamon.org`) that wraps window buttons into multiple rows using `Clutter.FlowLayout`. Status: **Alpha**.
+Cinnamon 6.0.4 desktop applet (forked from stock `window-list@cinnamon.org`) that wraps window buttons into multiple rows using `Clutter.FlowLayout`. Status: **preparing Cinnamon Spices submission** (PR gated on the panel-launcher PR #8862 merging first).
 
 - **UUID**: `multirow-window-list@science`
 - **Target**: Cinnamon 6.0+ on Ubuntu 24.04
@@ -65,19 +65,18 @@ Cinnamon 6.0.4 desktop applet (forked from stock `window-list@cinnamon.org`) tha
 
 ## Development Environment
 
-**Claude Code runs inside the VM** (`cinnamon-dev`). This is the primary development environment.
+**Claude Code typically runs on the host** (`linux-bambam`); E2E tests run inside an Incus dev VM. The old libvirt `cinnamon-dev` VM and its `vm/` scripts are RETIRED — the VM no longer exists.
 
-### VM Infrastructure
+### VM Infrastructure (Incus, via ~/dev/dev-vm-manager)
 
-- **VM name**: `cinnamon-dev` (hostname: `cinnamon-dev`)
-- **OS**: Ubuntu 24.04.4 LTS + Cinnamon 6.0.4
-- **Session**: `cinnamon2d` (virtio GPU, NOT QXL which crashes X)
-- **RAM**: 8 GiB, **CPUs**: 4
-- **Login**: steve / dev
-- **Host connectivity**: `~/dev` → `/mnt/host-dev/` (virtio-fs, read-write) — code edits are instant
-- **Screenshots to host**: `~/Pictures/host-pictures` → `/mnt/host-pictures/` — save screenshots here to view on host
-- **Applet symlink**: `~/.local/share/cinnamon/applets/multirow-window-list@science` → `/mnt/host-dev/cinnamon-multirow-windowlist`
-- **`DISPLAY=:0`** is set in the environment — no need to prefix commands
+- **VM names**: `dev-1`, `dev-2`, ... (hostname matches) — managed by `~/dev/dev-vm-manager` (`create-dev-vm`, `boot-vm`, `vm-manager`)
+- **OS**: Ubuntu 24.04 + Cinnamon 6.0.4, LightDM autologin, X on `:0`
+- **Access**: `ssh steve@dev-1` (key auth; `~/dev`, `~/Pictures`, `~/.claude` shared via virtiofs at the SAME paths as the host)
+- **Applet install in VM**: `ssh steve@dev-1 'cd ~/dev/cinnamon-multirow-windowlist && ./install.sh'`, then swap `window-list@cinnamon.org` → `multirow-window-list@science` in dconf `enabled-applets`, then `./run.sh`
+- **Test scripts run INSIDE the VM** (local mode triggers on `dev-*` hostnames): `ssh steve@dev-1 'cd ~/dev/cinnamon-multirow-windowlist && bash test/vm-panel-test.sh'`
+- **xterm app id in the VM is `debian-xterm.desktop`** (not `xterm.desktop`) — vm-pinning-test.sh resolves this at runtime
+- **dev-1 is also a real work environment** — the user runs Claude sessions in gnome-terminal there. Don't assume a clean desktop: tests must tolerate pre-existing windows, and staged screenshots should use an empty workspace (`wmctrl -s 1`) to avoid leaking real window titles.
+- **Screenshots**: `xwd -root | convert xwd:- png:out.png` (gnome-screenshot/scrot produce black frames)
 
 ### Restarting Cinnamon (picking up code changes)
 
@@ -169,18 +168,12 @@ bash test/vm-pinning-test.sh
 ### Gotchas
 
 - **Restart Cinnamon to pick up code changes**: `./run.sh` (or `setsid cinnamon --replace &>/dev/null &`)
-- **QXL crashes X**: VM uses `virtio` video model + `cinnamon2d` session
 - **Process backgrounding**: use `setsid` to fully detach processes (plain `&` may leave fds open)
-- **Screenshots**: `xwd -root | convert xwd:- png:output.png` (gnome-screenshot/scrot produce black with virtio GPU)
+- **Screenshots**: `xwd -root | convert xwd:- png:output.png` (gnome-screenshot/scrot produce black frames in VMs)
 - **D-Bus eval quoting**: pipe JS through stdin to `/tmp/cinnamon-eval.py` — shell quoting with nested quotes is unreliable
-- **Test packages not pre-installed**: after clean-baseline revert, run: `sudo apt install -y xterm x11-apps gedit wmctrl`
-- **Host file access**: `~/dev` → `/mnt/host-dev/` (code), `~/Pictures/host-pictures` → `/mnt/host-pictures/` (screenshots)
-- **Snapshot/revert require host access**: `virsh` runs on the hypervisor host, not inside the VM
+- **Test packages in the VM**: `sudo apt install -y xterm x11-apps gedit wmctrl`
+- **wmctrl kill-by-title is unreliable** — some xterms report `N/A` titles; kill test windows by class instead: `wmctrl -lx | awk '/xterm.XTerm/{print $1}' | xargs -r -I{} wmctrl -ic {}`
 
-### VM Management (from host)
+### Legacy vm/ scripts
 
-The `vm/` scripts are for managing the VM **from the host OS**. Since Claude Code runs inside the VM, these are for the user to run on the host when needed:
-
-```bash
-./vm/vm-ctl.sh start/stop/snapshot/revert/viewer
-```
+The `vm/` directory (`vm-ctl.sh`, `create-vm.sh`, ...) targets the retired libvirt `cinnamon-dev` VM and no longer works — the domain and disk images are gone. VM lifecycle is now handled by `~/dev/dev-vm-manager` (Incus). The scripts are kept for reference only.
