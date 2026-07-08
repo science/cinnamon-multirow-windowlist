@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: multirow-window-list@science 1.0.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-07 21:38-0700\n"
+"POT-Creation-Date: 2026-07-07 22:10-0700\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -98,49 +98,49 @@ msgstr ""
 msgid "Close"
 msgstr ""
 
-#: applet.js:1937
+#: applet.js:1969
 msgid "Title pattern:"
 msgstr ""
 
-#: applet.js:1954
+#: applet.js:1986
 msgid "Priority: "
 msgstr ""
 
-#: applet.js:1963
+#: applet.js:1995
 #, javascript-format
 msgid "App: %s"
 msgstr ""
 
-#: applet.js:1968 applet.js:2058
+#: applet.js:2000 applet.js:2090
 msgid "Cancel"
 msgstr ""
 
-#: applet.js:1969
+#: applet.js:2001
 msgid "Pin"
 msgstr ""
 
-#: applet.js:1984
+#: applet.js:2016
 msgid "Pin Rules"
 msgstr ""
 
-#: applet.js:1990
+#: applet.js:2022
 msgid "Priority"
 msgstr ""
 
-#: applet.js:1991
+#: applet.js:2023
 msgid "App"
 msgstr ""
 
-#: applet.js:1992
+#: applet.js:2024
 msgid "Title Pattern"
 msgstr ""
 
-#: applet.js:2051
+#: applet.js:2083
 msgid ""
 "No pin rules. Right-click a window and choose 'Pin this window' to add one."
 msgstr ""
 
-#: applet.js:2059
+#: applet.js:2091
 msgid "Save"
 msgstr ""
 
