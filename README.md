@@ -4,7 +4,7 @@ A Cinnamon desktop applet that wraps window buttons into multiple rows on tall p
 
 Forked from the stock `window-list@cinnamon.org`.
 
-**Status: Alpha** — tested in a VM matching the target environment. Not yet tested on a daily-driver desktop.
+Tested on Cinnamon 6.0.4 (Ubuntu 24.04) — full E2E suite in a VM matching the target environment, plus daily use on a live desktop.
 
 ## What It Does
 
@@ -13,7 +13,12 @@ Forked from the stock `window-list@cinnamon.org`.
 - **Adaptive button sizing**: when too many windows for the configured rows, buttons shrink to fit; beyond a threshold they drop labels and go icon-only
 - **App grouping**: new windows from the same app are inserted next to existing windows of that app, keeping related windows together
 - **Drag reorder**: drag buttons to rearrange, including across rows; the order is saved and restored across restarts
+- **Window pinning**: pin rules (per app, with optional title regex) hold specific windows at fixed positions on the left of the list, surviving restarts — see `pin.sh`
 - All the standard window-list features: thumbnails on hover, middle-click close, left-click minimize, workspace filtering, attention alerts
+
+## Why not "Cinnamon Multi-Line Taskbar"?
+
+The existing [Cinnamon Multi-Line Taskbar](https://cinnamon-spices.linuxmint.com/applets/view/123) applet occupies the same niche, but its upstream repository has been archived since 2022, it predates current Cinnamon releases, and its row count can only be changed by editing constants in `applet.js`. This applet is a fresh fork of the current stock window-list for Cinnamon 6.0 with dynamic `Clutter.FlowLayout` reflow, a full settings UI, adaptive layouts and button sizing, app grouping, and pinning.
 
 ## Requirements
 
@@ -75,7 +80,7 @@ Then restart Cinnamon:
 ## Tests
 
 ```bash
-npm test    # 141 unit tests
+npm test    # 200 unit tests
 ```
 
 Tests cover helper calculations, settings schema validation, and applet safety checks (signal cleanup, timer safety, CSS box model, grouping correctness).
@@ -87,6 +92,7 @@ End-to-end tests run inside a libvirt/KVM VM with a real Cinnamon desktop:
 ```bash
 bash test/vm-panel-test.sh          # Panel zone layout (0-50 windows)
 bash test/vm-grouping-test.sh       # Window grouping (5 scenarios)
+bash test/vm-pinning-test.sh        # Window pinning (6 scenarios)
 ```
 
 Requires the `cinnamon-dev` VM — see `CLAUDE.md` for VM setup details.
@@ -111,4 +117,4 @@ If both fail, Cinnamon synthesizes a transient app with id `window:<sequence>` w
 
 ## License
 
-Based on the stock Cinnamon window-list applet (GPL-2.0).
+GPL-2.0-or-later — see [LICENSE](LICENSE). Forked from the stock Cinnamon window-list applet (`window-list@cinnamon.org`), Copyright (C) the Linux Mint team.
