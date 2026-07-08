@@ -9,7 +9,7 @@ const metadata = JSON.parse(fs.readFileSync(path.join(ROOT, 'metadata.json'), 'u
 
 describe('metadata.json', () => {
     it('has the correct UUID', () => {
-        assert.equal(metadata.uuid, 'multirow-window-list@cinnamon');
+        assert.equal(metadata.uuid, 'multirow-window-list@science');
     });
 
     it('has updated name', () => {

@@ -4,7 +4,7 @@
 
 Cinnamon 6.0.4 desktop applet (forked from stock `window-list@cinnamon.org`) that wraps window buttons into multiple rows using `Clutter.FlowLayout`. Status: **Alpha**.
 
-- **UUID**: `multirow-window-list@cinnamon`
+- **UUID**: `multirow-window-list@science`
 - **Target**: Cinnamon 6.0+ on Ubuntu 24.04
 
 ## Critical Rules
@@ -42,7 +42,7 @@ Cinnamon 6.0.4 desktop applet (forked from stock `window-list@cinnamon.org`) tha
 - **Install**: `./install.sh` (validates files, creates symlink, warns about stock applet conflict)
 - **Uninstall**: `./uninstall.sh` (removes from dconf + deletes symlink; safe from TTY if Cinnamon crashed)
 - **Manual Cinnamon restart**: `Alt+F2 → r → Enter` or `DISPLAY=:0 cinnamon --replace &>/dev/null &`
-- **Applet dir**: `~/.local/share/cinnamon/applets/multirow-window-list@cinnamon`
+- **Applet dir**: `~/.local/share/cinnamon/applets/multirow-window-list@science`
 - **dconf key**: `/org/cinnamon/enabled-applets` (list of active applets)
 - **Stock applet UUID**: `window-list@cinnamon.org` (has same `windowattentionhandler` role — only one should be active)
 
@@ -76,7 +76,7 @@ Cinnamon 6.0.4 desktop applet (forked from stock `window-list@cinnamon.org`) tha
 - **Login**: steve / dev
 - **Host connectivity**: `~/dev` → `/mnt/host-dev/` (virtio-fs, read-write) — code edits are instant
 - **Screenshots to host**: `~/Pictures/host-pictures` → `/mnt/host-pictures/` — save screenshots here to view on host
-- **Applet symlink**: `~/.local/share/cinnamon/applets/multirow-window-list@cinnamon` → `/mnt/host-dev/cinnamon-multirow-windowlist`
+- **Applet symlink**: `~/.local/share/cinnamon/applets/multirow-window-list@science` → `/mnt/host-dev/cinnamon-multirow-windowlist`
 - **`DISPLAY=:0`** is set in the environment — no need to prefix commands
 
 ### Restarting Cinnamon (picking up code changes)

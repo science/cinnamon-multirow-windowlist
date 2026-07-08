@@ -1,5 +1,5 @@
 #!/bin/bash
-# Install multirow-window-list@cinnamon applet
+# Install multirow-window-list@science applet
 #
 # Creates a symlink from the repo into Cinnamon's applet directory,
 # checks for conflicts with the stock window-list, and validates
@@ -9,7 +9,7 @@
 
 set -eo pipefail
 
-UUID="multirow-window-list@cinnamon"
+UUID="multirow-window-list@science"
 STOCK_UUID="window-list@cinnamon.org"
 APPLET_DIR="$HOME/.local/share/cinnamon/applets/$UUID"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

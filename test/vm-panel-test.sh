@@ -37,7 +37,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 VM_CTL="$PROJECT_DIR/vm/vm-ctl.sh"
 SCREENSHOT_DIR="$SCRIPT_DIR/screenshots"
-APPLET_UUID="multirow-window-list@cinnamon"
+APPLET_UUID="multirow-window-list@science"
 
 # --- Local-mode detection ---
 # When running inside the VM (virtio-fs mount visible), skip SSH wrappers.

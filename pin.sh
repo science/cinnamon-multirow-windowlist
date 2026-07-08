@@ -20,7 +20,7 @@
 set -eo pipefail
 
 SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-APPLET_UUID="multirow-window-list@cinnamon"
+APPLET_UUID="multirow-window-list@science"
 CONFIG_DIR="$HOME/.config/cinnamon/spices/$APPLET_UUID"
 EVAL_HELPER="/tmp/cinnamon-eval.py"
 

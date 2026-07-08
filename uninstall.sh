@@ -1,5 +1,5 @@
 #!/bin/bash
-# Uninstall multirow-window-list@cinnamon applet
+# Uninstall multirow-window-list@science applet
 #
 # Safe to run from a TTY if Cinnamon has crashed.
 # Removes the applet from dconf and deletes the symlink/directory.
@@ -9,7 +9,7 @@
 
 set -eo pipefail
 
-UUID="multirow-window-list@cinnamon"
+UUID="multirow-window-list@science"
 STOCK_UUID="window-list@cinnamon.org"
 APPLET_DIR="$HOME/.local/share/cinnamon/applets/$UUID"
 

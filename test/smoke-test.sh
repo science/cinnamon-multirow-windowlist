@@ -11,7 +11,7 @@ set -euo pipefail
 
 DISPLAY_NUM=":99"
 LOG="/tmp/cinnamon-smoke-test.log"
-APPLET_UUID="multirow-window-list@cinnamon"
+APPLET_UUID="multirow-window-list@science"
 APPLET_DIR="$HOME/.local/share/cinnamon/applets/$APPLET_UUID"
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PIDS=()

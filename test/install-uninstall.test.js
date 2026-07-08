@@ -6,7 +6,7 @@ const path = require('node:path');
 const os = require('node:os');
 
 const PROJECT_DIR = path.resolve(__dirname, '..');
-const UUID = 'multirow-window-list@cinnamon';
+const UUID = 'multirow-window-list@science';
 const STOCK_UUID = 'window-list@cinnamon.org';
 
 /**

@@ -51,7 +51,7 @@ if [[ "$(hostname)" != "cinnamon-dev" ]]; then
 fi
 
 # --- Check applet symlink ---
-APPLET_LINK="$HOME/.local/share/cinnamon/applets/multirow-window-list@cinnamon"
+APPLET_LINK="$HOME/.local/share/cinnamon/applets/multirow-window-list@science"
 if [[ ! -L "$APPLET_LINK" ]]; then
     echo -e "${RED}ERROR: Applet symlink missing at $APPLET_LINK${NC}"
     echo "Run ./install.sh to set it up."
